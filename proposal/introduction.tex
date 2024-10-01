@@ -1,0 +1,18 @@
+\section{Introduction}
+Many commercial applications of large language models (LLMs) involve applying them to solve domain-specific tasks. Often, such applications require that additional domain-specific information, in particular information outside of the LLM training data, is made available to the LLM.
+
+Retrieval-augmented generation (RAG) (Lewis et al. 2020)  is a popular technique for making such information available. In RAG, the application injects data (e.g. from a database) into the system prompt, with the hope that the LLM can use this information to produce a response that incorporates relevant domain-specific data. An advantage of the RAG-based approach is its flexibility and ease-of-use: the application can use its own logic to determine how to enhance the prompts. However, RAG systems have corresponding disadvantages. In particular, incorporating a RAG architecture increases application and infrastructure complexity.
+
+Fine-tuning presents another approach. In the fine-tuning paradigm, the parameters of the LLM itself are modified by training the LLM on additional content. The fine-tuned LLM can be used as a "drop-in" replacement for a base language model: no changes to architecture or software are required.
+
+In prior work, various recipes have been proposed for developing specialized LLMs via fine-tuning (Balaguer et al. 2024; H. Yang, Liu, and Wang 2023; C. Wu et al. 2023). Simultaneously, various techniques have been developed to improve general reasoning abilities with synthetic data (Shao et al. 2023; Wang et al. 2023; Mitra et al. 2024).
+
+However, there is relatively less literature evaluating the performance of state-of-the-art synthetic data generation techniques for fine-tuning domain-specific LLMs. AgentInstruct (Mitra et al. 2024) provides a promising agent-based approach, however the authors did not perform any evaluation for domains-specific cases, and the AgentInstruct code is not readily available.
+
+For this project, we propose the development of an open-source agentic framework (in the style of AgentInstruct) that can automatically generate synthetic data and fine-tune an LLM on that data. Concretely, we wish to make the following contributions:
+
+\begin{enumerate}
+\item The development of the aforementioned framework
+\item An evaluation that compares the performance of LLMs fine-tuned via our framework to traditional RAG based techniques
+\item Reproducible experiments that track resource usage and the ability to leverage different language models
+\end{enumerate}

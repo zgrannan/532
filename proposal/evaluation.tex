@@ -1,0 +1,26 @@
+\section{Evaluation}
+We will evaluate our approach with respect to two research questions:
+
+\begin{itemize}
+\item RQ1: How does our approach compare to RAG-based approach w.r.t recall / QA tasks?
+\item RQ2: How does our approach compare to RAG-based approach w.r.t hallucinations?
+\end{itemize}
+
+To evaluate performance, we will compare responses on a curated test dataset against a baseline retrieval augmented generation system and evaluate the responses using an oracle model: previous research has shown that LLMs are effective at approximating human preferences related to chatbout output ((Zheng et al. 2023). We will leverage existing tools such as Ragas(“Introduction | Ragas,” n.d.) for evaluation.
+
+To evaluate our approach, we will use off-the-shelf evaluation suites. For example, we could consider one of the following domain-specific QA benchmarks:
+
+\begin{itemize}
+\item TriviaQA (Joshi et al. 2017) - A dataset consisting of 650k question-answer-evidence triples, sourced from trivia enthusiasts.
+\item HotpotQA (Z. Yang et al. 2018) - Contains 113K question-aswer pairs from Wikipedia, alongside supporting evidence.
+\item PubmedQA (Jin et al. 2019) - Nearly 300k QA instances derived from PubMed abstracts. Each instance takes the form of a research question with possible answers yes/no/maybe.
+\end{itemize}
+
+We will compare our technique to SOTA RAG-based techniques w.r.t our research questions.
+
+During our evaluation, we will operate by fine-tuning existing open-source
+models (Phi-3(Abdin et al. 2024), Llama 3 (Dubey et al. 2024) etc). We will
+perform our approach on different sizes (e.g. for the phi-3 series, 3.8B, 7B,
+and 14B models are available), considering how the different models perform for
+RAG and fine-tuning approaches. We will also consider different quantization
+levels.

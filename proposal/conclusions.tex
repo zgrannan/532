@@ -1,0 +1,30 @@
+\section{Expected Conclusions}
+
+We expect that the performance of our approach, compared to traditional RAG-based approach, will depend on the extent to which the structure of the domain-specific data resembles the way it is used in an application. When the structure is similar, we expect RAG-based approaches to exhibit comparable performance, because the relevant data can be easily found using standard retrieval metrics based on the distance between embeddings. However, when the structure of the data is different, we expect our approach to yield better results: the "pre-processing" of the data via agentic workflows and subsequent fine-tuning on that data should hopefully allow the model to memorize the data in a way such that it can use it effectively later.
+
+
+\begin{table}[ht]
+    \centering
+    \begin{tabular}{|l|c|c|c|}
+        \hline
+        Domain & Base Model & Base Model + RAG & Fine-tuned Model \\ \hline
+        Domain A & 50\% & 70\% &  \\ \hline
+        Domain B & & &  \\ \hline
+        Domain C & & &  \\ \hline
+    \end{tabular}
+    \caption{Percentage of Correct Answers}
+\end{table}
+
+\begin{table}[ht]
+    \centering
+    \begin{tabular}{|l|c|c|c|}
+        \hline
+        Domain & Base Model & Base Model + RAG & Fine-tuned Model \\ \hline
+        Domain A & 50\% & 70\% &  \\ \hline
+        Domain B & & &  \\ \hline
+        Domain C & & &  \\ \hline
+    \end{tabular}
+    \caption{Hallucination Rate}
+\end{table}
+
+Previous research (Zhang et al. 2024) has shown that model size is an important factor in fine-tuning outcomes, therefore we expect that the performance of our approach will be more sensitive to model size than RAG-based approaches. In a RAG-based system, the reduced model size would presumably only change the results to the extent that reasoning ability is compromised.
