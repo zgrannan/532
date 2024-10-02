@@ -2,12 +2,12 @@
 We will evaluate our approach with respect to two research questions:
 
 \begin{itemize}
-\item RQ1: How does our approach compare to RAG-based approach w.r.t recall / QA tasks?
-\item RQ2: How does our approach compare to RAG-based approach w.r.t hallucinations?
+\item RQ1: How does our approach compare to RAG-based approach w.r.t. QA tasks?
+\item RQ2: How does our approach compare to RAG-based approach w.r.t. hallucinations?
 \end{itemize}
 
 To evaluate performance, we will compare responses on a curated test dataset
-against a baseline retrieval augmented generation system and evaluate the
+against a baseline retrieval-augmented generation system and evaluate the
 responses using an oracle model: previous research has shown that LLMs are
 effective at approximating human preferences related to chatbot output
 \citep{zheng_judging_2023}. We will leverage existing tools such as Ragas
@@ -21,11 +21,9 @@ To evaluate our approach, we will use off-the-shelf evaluation suites. For examp
 \item PubmedQA \citep{jin_pubmedqa_2019} - Nearly 300k QA instances derived from PubMed abstracts. Each instance takes the form of a research question with possible answers yes/no/maybe.
 \end{itemize}
 
-We will compare our technique to SOTA RAG-based techniques w.r.t our research questions.
-
-During our evaluation, we will operate by fine-tuning existing open-source
-models such as Phi-3 \citep{abdin_phi-3_2024} and Llama 3
-\citep{dubey_llama_2024}, etc. We will perform our approach on different sizes
-(e.g., for the Phi-3 series, 3.8B, 7B, and 14B models are available),
-considering how the different models perform for RAG and fine-tuning approaches.
-We will also consider different quantization levels.
+During our evaluation, we will fine-tune existing open-source models such as
+Phi-3 \citep{abdin_phi-3_2024} and Llama 3 \citep{dubey_llama_2024}, etc. We
+will perform our approach on different sizes (e.g., for the Phi-3 series, 3.8B,
+7B, and 14B models are available), considering how the different models perform
+for RAG and fine-tuning approaches. We will also consider different quantization
+levels.

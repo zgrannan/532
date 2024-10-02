@@ -1,15 +1,16 @@
 \section{Introduction}
-Many commercial applications of large language models (LLMs) involve applying them to solve domain-specific tasks. Often, such applications require that additional domain-specific information, in particular information outside of the LLM training data, is made available to the LLM.
-
-Retrieval-augmented generation (RAG) \citep{lewis_retrieval-augmented_2020} is a
-popular technique for making such information available. In RAG, the application
-injects data (e.g. from a database) into the system prompt, with the hope that
-the LLM can use this information to produce a response that incorporates
-relevant domain-specific data. An advantage of the RAG-based approach is its
-flexibility and ease-of-use: the application can use its own logic to determine
-how to enhance the prompts. However, RAG systems have corresponding
-disadvantages. In particular, incorporating a RAG architecture increases
-application and infrastructure complexity.
+Many commercial applications of large language models (LLMs) involve
+domain-specific tasks that require information that is not included in the LLM’s
+training data. Retrieval-augmented generation (RAG)
+\citep{lewis_retrieval-augmented_2020} is a popular technique for making such
+information available. In RAG, the application injects data (e.g., from a
+database) into the system prompt, with the hope that the LLM can use this
+information to produce a response that incorporates relevant domain-specific
+data. An advantage of the RAG-based approach is its flexibility and ease of use:
+the application can use its own logic to determine how to enhance the prompts.
+However, RAG systems have corresponding disadvantages. In particular,
+incorporating a RAG architecture increases application and infrastructure
+complexity.
 
 Fine-tuning presents another approach. In the fine-tuning paradigm, the parameters of the LLM itself are modified by training the LLM on additional content. The fine-tuned LLM can be used as a "drop-in" replacement for a base language model: no changes to architecture or software are required.
 
@@ -19,7 +20,7 @@ However, there is relatively less literature evaluating the performance of
 state-of-the-art synthetic data generation techniques for fine-tuning
 domain-specific LLMs. AgentInstruct \citep{mitra_agentinstruct_2024} provides a promising
 agent-based approach, however the authors did not perform any evaluation for
-domains-specific cases, and the AgentInstruct code is not readily available.
+domain-specific cases, and the AgentInstruct code is not readily available.
 
 For this project, we intend to make the following contributions:
 
@@ -27,6 +28,6 @@ For this project, we intend to make the following contributions:
 \item Develop an open-source agentic framework (in the style of AgentInstruct)
 that can automatically generate synthetic data and fine-tune an LLM on that
 data, and
-\item Evaluate the performance of LLMs fine-tuned via our framework to
+\item Evaluate the performance of LLMs fine-tuned via our framework compared to
 traditional RAG based techniques
 \end{enumerate}

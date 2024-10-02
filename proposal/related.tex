@@ -2,7 +2,7 @@
 
 With the rapid advancements of new large language models (LLMs), there is
 concern that the amount of internet data that has traditionally been used to
-train these models have been exhausted. Recent releases of the latest models
+train these models has been exhausted. Recent releases of the latest models
 have used synthetic data during pre- and post-training \citep{abdin_phi-3_2024,
 dubey_llama_2024, bai_qwen_2023}. Furthermore, the generative and reasoning
 capabilities of LLMs have proven their effectiveness as tools for synthetic data
@@ -10,30 +10,30 @@ generation.
 
 \subsection{Fine-Tuning with Synthetic Data}
 
-Recent research into leveraging LLMs for synthetic data generation are split
-into two approaches: seeded method where LLMs are guided by an initial dataset
+Recent research into leveraging LLMs for synthetic data generation is split
+into two approaches: seeded methods where LLMs are guided by an initial dataset
 to generate new data and seedless methods where LLMs generate data without an
 initial dataset. In Self-Instruct \citep{wang_self-instruct_2023}, the authors
-leverage vanilla GPT3 to generate instructions, input, and output samples to
-finetune the same language model, demonstrating a 33\% improvement over the
-original model. In Synthetic prompting \cite{shao_synthetic_2023}, they leverage
-a LLM to generate Chain-of-Thought prompts to enhance a language model’s
+leverage vanilla GPT-3 to generate instructions, input, and output samples to
+fine-tune the same language model, demonstrating a 33\% improvement over the
+original model. In Synthetic Prompting \cite{shao_synthetic_2023}, they leverage
+an LLM to generate Chain-of-Thought prompts to enhance a language model’s
 reasoning capabilities during inference. In TarGEN \citep{gupta2023targen}, the
 authors present a seedless multi-step prompting strategy that generates
 high-quality synthetic datasets using LLMs, including on domain-specific tasks
 with minimal existing data. Recent approaches to using LLMs for synthetic data
 generation have led to agentic approaches that generate large amounts of diverse
-and high quality data. In AgentInstruct \citep{mitra_agentinstruct_2024}, seed
+and high-quality data. In AgentInstruct \citep{mitra_agentinstruct_2024}, seed
 data is leveraged to transform and generate new data using curated LLM agents
 across 17 different skills ranging from reading comprehension, question
-answering, creative writing to few shot reasoning. The resulting fine-tuned
+answering, creative writing to few-shot reasoning. The resulting fine-tuned
 Orca-3 model trained on the 22 million instructions generated from AgentInstruct
 outperforms GPT-3.5-turbo and GPT-4 in the MMLU and DROP benchmarks.
 
 \subsection{Integrating Knowledge Retrieval and Fine-Tuning}
 
-Recent literature in combining fine tuning with RAG, RAFT \citep{zhang2024raft},
-have shown improvements in performance across domain specific datasets. REALM
+Recent literature in combining fine-tuning with RAG, RAFT \citep{zhang2024raft},
+has shown improvements in performance across domain-specific datasets. REALM
 \citep{guu_realm_2020} augments a language model with a neural knowledge
 retrieval engine that is also trained during the pre-training and fine-tuning
 stages.
@@ -42,23 +42,23 @@ stages.
 
 Advancements in both fine-tuning, in which an existing model’s weights are used
 as the baseline for further training, and improvements in small language models
-has drastically reduced the computation required to fine-tune a model. Methods
+have drastically reduced the computation required to fine-tune a model. Methods
 like LoRA \citep{hu2021lora} and QLoRA \cite{dettmers2024qlora} have further
 reduced the computation requirements for LLM finetuning.
 
 While Large Language Models have significantly advanced natural language
 processing, small language models (SLM) have also seen improvements in text
 generation, reasoning, and performance. Training techniques such as model
-distillation use a LLM is used to fine-tune a SLM in an effort to teach and
-train a SLM and knowledge from a LLM. Furthermore, SLMs have advantages in cost,
-computation, and flexibility over LLMs. While LLMs excel at generability, recent
-research has shown that SLMs fine-tuned on domain specific datasets can
-outperform general-purpose LLMs for specific tasks.
+distillation use an LLM to fine-tune an SLM, transferring knowledge from the LLM
+to the SLM. Furthermore, SLMs have advantages in cost, computation, and
+flexibility over LLMs. While LLMs excel at generalisability, recent research has
+shown that SLMs fine-tuned on domain-specific datasets can outperform
+general-purpose LLMs for specific tasks.
 
 \subsection{Domain-Specific LLMs}
 
 Domain-specific LLMs, both those trained from scratch and those that fine-tune
-an existing model, have been shown to outperform general purpose LLMS. In the
+an existing model, have been shown to outperform general-purpose LLMs. In the
 former category, the closed-source BloombergGPT \citep{wu_bloomberggpt_2023},
 trained from scratch on a dataset consisting of domain-specific and general
 data, outperforms general-purpose LLMs on finance-related tasks.
@@ -69,5 +69,5 @@ typically fine-tune an LLM by injecting additional knowledge and performing
 instruction-tuning \citep{ouyang_training_2022}. FinGPT \citep{yang_fingpt_2023}
 provides a framework for fine-tuning LLMs for finance-related tasks. The
 lightweight model PMC-LLaMa \citep{wu_pmc-llama_2023} is developed by
-fine-tuning a LLAMA model, and can outperform ChatGPT on various medical QA
+fine-tuning a LLaMA model, and can outperform ChatGPT on various medical QA
 tasks.

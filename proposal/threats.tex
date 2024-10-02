@@ -1,5 +1,22 @@
 \section{Threats to Validity}
 
-Limitations related to time and computational resources result in a threat to external validity: we intend to use a NVIDIA 3080 TI GPU and compute resources from Google Colab for LLM fine-tuning, but in principle other organizations could extend significantly more resources towards LLM fine-tuning and consequently achieve better performance. Therefore, the results we observe may not be representative of what would be expected with the application of more computational resources.
-One threat to internal validity is that the baseline RAG system that we develop for comparison purposes may itself have problems. To attempt to address this threat, we will try to the best of our ability to follow best practices in development of the RAG system to reduce the possibility of introducing bugs. We will also manually inspect the results of the RAG system to ensure that it is functioning properly.
-The use of "LLM-as-judge" introduces a potential threat to construct validity: the oracle LLM itself may not be an accurate judge of the factual accuracy of answers. To address this threat, in our evaluation we will also judge a random subset of answers ourselves and ensure that they correspond with the oracle judgment to an acceptable level.
+Limitations related to time and computational resources result in a threat to
+external validity: we intend to use an NVIDIA 3080 Ti GPU and compute resources
+from Google Colab for LLM fine-tuning, but in principle other organizations
+could extend significantly more resources towards LLM fine-tuning and
+consequently achieve better performance. Therefore, the results we observe may
+not be representative of what would be expected with the application of more
+computational resources.
+
+One threat to internal validity is that the baseline
+RAG system that we develop for comparison purposes may itself have problems. To
+attempt to address this threat, we will try to the best of our ability to follow
+best practices in development of the RAG system to reduce the possibility of
+introducing bugs. We will also manually inspect the results of the RAG system to
+ensure that it is functioning properly.
+
+The use of "LLM-as-judge" introduces a potential threat to construct validity:
+the oracle LLM itself may not be an accurate judge of the factual accuracy of
+answers. To address this threat, in our evaluation we will also judge a random
+subset of answers ourselves and ensure that they correspond with the oracle
+judgement to an acceptable level.

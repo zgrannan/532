@@ -13,18 +13,17 @@ fine-tuned with additional synthetic data derived from the domain dataset.}
 % currently exploring datasets that can be used. Current ideas include research
 % papers, company financial data, technical reports and manuals, or company
 % specific FAQ data.
-We will develop a multi-agent
-framework that uses small language models such as Llama-3.1-8B, Llama-3.2-3B,
-Qwen2.5-7B.
-The purpose of agents in this our approach is to use them to generate a diverse
-set of synthetic data such that models fine-tuned on this data yield better
-performance on their domain-specific task. For example, for an LLM designed to
-perform as a chatbot for a particular company; a ``Question-Answer'' agent could
-generate question-answer pairs from the domain dataset. Additional agents could
-further mutate these pairs to increase diversity of the dataset; for example a
-``Distractor'' agent could modify the question to include irrelevant details.
+We will develop a multi-agent framework that uses small language models such as
+Llama-3.1-8B, Llama-3.2-3B, Qwen2.5-7B. In our approach, these agents generate a
+diverse set of synthetic data such that models fine-tuned on this data yield
+better performance on their domain-specific task. For example, for an LLM
+designed to perform as a chatbot for a particular company, a ``Question-Answer''
+agent could generate question-answer pairs from the domain dataset. Additional
+agents could further mutate these pairs to increase diversity of the dataset,
+for example, a ``Distractor'' agent could modify the question to include
+irrelevant details.
 
-Our immediate goal will be to develop agents for LLMS that specialise in
+Our immediate goal will be to develop agents for LLMs that specialise in
 question answering tasks, similar to that of a traditional chatbot. Time
 permitting, we may investigate the development of agents to generate synthetic
 data to reduce hallucinations.
@@ -37,7 +36,7 @@ limitations.
 \subsection{Challenges}
 
 One of the challenges we foresee may be overfitting on the fine-tuned model and
-the models inability to generalize to different writing styles and formats. We
+the model's inability to generalise to different writing styles and formats. We
 plan to mitigate this by increasing the diversity of our generated data. Another
 challenge is hallucination: previous research has shown that fine-tuning LLMs
 with new factual information increases their tendency to hallucinate
