@@ -12,4 +12,13 @@ Next we will use the data to fine-tune LoRA adapters on the base model chosen. S
 
 \subsection{Challenges}
 
-One of the challenges we foresee may be overfitting on the fine-tuned model and the models inability to generalize to different writing styles and formats. We plan to mitigate this by increasing the diversity of our generated data. Another challenge is hallucination: previous research has shown that fine-tuning LLMs with new factual information increases their tendency to hallucinate (Gekhman et al. 2024). However, because we consider applications where the questions posed to the LLMs are related to data in the fine-tuning dataset, it's possible that this effect will be reduced (as opposed to questions unrelated to the domain, where a clear effect has already been observed in existing literature).
+One of the challenges we foresee may be overfitting on the fine-tuned model and
+the models inability to generalize to different writing styles and formats. We
+plan to mitigate this by increasing the diversity of our generated data. Another
+challenge is hallucination: previous research has shown that fine-tuning LLMs
+with new factual information increases their tendency to hallucinate
+\citep{gekhman_does_2024}. However, because we consider applications where the
+questions posed to the LLMs are related to data in the fine-tuning dataset, it's
+possible that this effect will be reduced (as opposed to questions unrelated to
+the domain, where a clear effect has already been observed in existing
+literature).
