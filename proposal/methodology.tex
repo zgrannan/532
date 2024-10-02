@@ -3,12 +3,36 @@
 \begin{figure}[h]
   \centering
   \includegraphics[width=1\textwidth]{methodology.jpg}
-  \caption{An overview of our methodology. TODO}
+  \caption{An overview of our methodology. Given a user-provided dataset, our
+framework will employ co-operating agents to create a synthetic dataset that is
+used to fine-tune a SLM for downstream tasks. The resulting model can be further
+fine-tuned with additional synthetic data derived from the domain dataset.}
 \end{figure}
 
-For our domain datasets that will be used as the seed data, we are still currently exploring datasets that can be used. Current ideas include research papers, company financial data, technical reports and manuals, or company specific FAQ data.
-We will develop a multi agent synthetic data generation framework using small language models such as Llama-3.1-8B, Llama-3.2-3B, Qwen2.5-7B to synthetically generate high-quality diverse domain specific data.. Our immediate goal will be to create a framework for specializing in question answering tasks, similar to that of a traditional chatbot. Time permitting, we may expand this scope to also minimize hallucinations from model responses.
-Next we will use the data to fine-tune LoRA adapters on the base model chosen. Since this will be an iterative process, we may also choose to perform a full supervised fine-tune of the model depending on resource limitations.
+% For our domain datasets that will be used as the seed data, we are still
+% currently exploring datasets that can be used. Current ideas include research
+% papers, company financial data, technical reports and manuals, or company
+% specific FAQ data.
+We will develop a multi-agent
+framework that uses small language models such as Llama-3.1-8B, Llama-3.2-3B,
+Qwen2.5-7B.
+The purpose of agents in this our approach is to use them to generate a diverse
+set of synthetic data such that models fine-tuned on this data yield better
+performance on their domain-specific task. For example, for an LLM designed to
+perform as a chatbot for a particular company; a ``Question-Answer'' agent could
+generate question-answer pairs from the domain dataset. Additional agents could
+further mutate these pairs to increase diversity of the dataset; for example a
+``Distractor'' agent could modify the question to include irrelevant details.
+
+Our immediate goal will be to develop agents for LLMS that specialise in
+question answering tasks, similar to that of a traditional chatbot. Time
+permitting, we may investigate the development of agents to generate synthetic
+data to reduce hallucinations.
+
+Our framework will use the synthetic data to fine-tune LoRA adapters on the base
+model chosen. Since this will be an iterative process, we may also choose to
+perform a full supervised fine-tune of the model depending on resource
+limitations.
 
 \subsection{Challenges}
 

@@ -9,13 +9,13 @@
 
 % to compile a preprint version, e.g., for submission to arXiv, add add the
 % [preprint] option:
-\usepackage[preprint]{neurips_2021}
+% \usepackage[preprint]{neurips_2021}
 
 % to compile a camera-ready version, add the [final] option, e.g.:
 %     \usepackage[final]{neurips_2021}
 
 % to avoid loading the natbib package, add option nonatbib:
-%    \usepackage[nonatbib]{neurips_2021}
+\usepackage[nonatbib,preprint]{neurips_2021}
 
 \usepackage[utf8]{inputenc} % allow utf-8 input
 \usepackage[T1]{fontenc}    % use 8-bit T1 fonts
@@ -27,6 +27,7 @@
 \usepackage{microtype}      % microtypography
 \usepackage{xcolor}         % colors
 \usepackage{graphicx}
+\usepackage[numbers]{natbib}
 
 \title{532 Research Proposal}
 
@@ -53,10 +54,10 @@ Synthetic data is now commonly used in the post-training stages of LLM
 development. However, there has been less research into the use of
 domain-specific synthetic data for fine-tuning purpose-built LLMs. For this
 project, we propose the development of an open-source agentic framework, in the
-style of AgentInstruct \citep{mitra_agentinstruct_2024}, that can automatically generate
-synthetic data for LLM fine-tuning in particular domains. In addition, we will
+style of AgentInstruct \citep{mitra_agentinstruct_2024}, that can automatically
+generate synthetic data for LLM fine-tuning in particular domains. We will
 evaluate the performance of LLMs developed via our framework to that of
-traditional RAG-based approaches, and construct a set of reusable experiments.
+traditional RAG-based approaches.
 \end{abstract}
 
 \input{introduction}
@@ -66,7 +67,9 @@ traditional RAG-based approaches, and construct a set of reusable experiments.
 \input{conclusions}
 \input{threats}
 
-\bibliographystyle{plain}
+\clearpage
+
+\bibliographystyle{abbrvnat}
 \bibliography{bib}
 
 \end{document}
