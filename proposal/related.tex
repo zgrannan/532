@@ -38,7 +38,7 @@ has shown improvements in performance across domain-specific datasets. REALM
 retrieval engine that is also trained during the pre-training and fine-tuning
 stages.
 
-\subsection{Efficient Fine-Tuning}
+\subsection{Efficient Fine-Tuning and Small Language Models}
 
 Advancements in both fine-tuning, in which an existing model’s weights are used
 as the baseline for further training, and improvements in small language models
@@ -48,12 +48,12 @@ reduced the computation requirements for LLM finetuning.
 
 While Large Language Models have significantly advanced natural language
 processing, small language models (SLM) have also seen improvements in text
-generation, reasoning, and performance. Training techniques such as model
-distillation use an LLM to fine-tune an SLM, transferring knowledge from the LLM
-to the SLM. Furthermore, SLMs have advantages in cost, computation, and
-flexibility over LLMs. While LLMs excel at generalisability, recent research has
-shown that SLMs fine-tuned on domain-specific datasets can outperform
-general-purpose LLMs for specific tasks.
+generation, reasoning, and performance. \cite{chen2024rolesmallmodelsllm}\cite{lu2024smalllanguagemodelssurvey}.
+Training techniques such as knowledge distillation \cite{xu2024surveyknowledgedistillationlarge} 
+use an LLM to fine-tune an SLM, transferring knowledge from the LLM to the SLM. 
+Furthermore, SLMs have advantages in cost, computation, and flexibility over LLMs. 
+While LLMs excel at generalisability, recent research has shown that SLMs fine-tuned 
+on domain-specific datasets can outperform general-purpose LLMs for specific tasks.
 
 \subsection{Domain-Specific LLMs}
 

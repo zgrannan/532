@@ -2,7 +2,7 @@
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=1\textwidth]{methodology.jpg}
+  \includegraphics[width=1\textwidth]{methodology.png}
   \caption{An overview of our methodology. Given a user-provided dataset, our
 framework will employ co-operating agents to create a synthetic dataset that is
 used to fine-tune a SLM for downstream tasks. The resulting model can be further
@@ -31,7 +31,8 @@ data to reduce hallucinations.
 Our framework will use the synthetic data to fine-tune LoRA adapters on the base
 model chosen. Since this will be an iterative process, we may also choose to
 perform a full supervised fine-tune of the model depending on resource
-limitations.
+limitations. We will leverage existing tools such as CrewAI \citep{crewai} and AutoGen \citep{wu2023autogenenablingnextgenllm} 
+for developing this framework and Unsloth \citep{unslothai} for model fine-tuning. 
 
 \subsection{Challenges}
 
