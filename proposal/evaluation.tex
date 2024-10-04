@@ -11,11 +11,14 @@ against a baseline retrieval-augmented generation system and evaluate the
 responses using an oracle model: previous research has shown that LLMs are
 effective at approximating human preferences related to chatbot output
 \citep{zheng_judging_2023}. We will leverage existing tools such as Ragas
-\citep{ragas} for evaluation.
+\citep{ragas} to develop the RAG alternative.
 
-For our evaluation, we intend to consider existing off-the-shelf evaluation
-suites. For example, we could consider one of the following domain-specific QA
-benchmarks:
+We have not yet identified a dataset that we will use for evaluation. One
+possible option is to consider recently published material to ensure that the
+data does not appear in the LLMs training data. Recent ArXiv papers would be one
+easily accessible option. Alternatively, we could choose a dataset in a domain
+where an existing performance evaluation suite could be applied. Below are some
+candidate evaluation suites that we have identified:
 
 \begin{itemize}
 \item TriviaQA \citep{joshi_triviaqa_2017} - A dataset consisting of 650k question-answer-evidence triples, sourced from trivia enthusiasts.

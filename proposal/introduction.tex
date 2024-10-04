@@ -1,6 +1,6 @@
 \section{Introduction}
 Many commercial applications of large language models (LLMs) involve
-domain-specific tasks that require information that is not included in the LLM’s
+domain-specific tasks requiring information not present in the LLM’s
 training data. Retrieval-augmented generation (RAG)
 \citep{lewis_retrieval-augmented_2020} is a popular technique for making such
 information available. In RAG, the application injects data (e.g., from a
@@ -14,13 +14,15 @@ complexity.
 
 Fine-tuning presents another approach. In the fine-tuning paradigm, the parameters of the LLM itself are modified by training the LLM on additional content. The fine-tuned LLM can be used as a "drop-in" replacement for a base language model: no changes to architecture or software are required.
 
-In prior work, various recipes have been proposed for developing specialized LLMs via fine-tuning \citep{balaguer_rag_2024,yang_fingpt_2023,wu_pmc-llama_2023}. Simultaneously, various techniques have been developed to improve general reasoning abilities with synthetic data \citep{shao_synthetic_2023,wang_self-instruct_2023,mitra_agentinstruct_2024}.
-
-However, there is relatively less literature evaluating the performance of
-state-of-the-art synthetic data generation techniques for fine-tuning
-domain-specific LLMs. AgentInstruct \citep{mitra_agentinstruct_2024} provides a promising
-agent-based approach, however the authors did not perform any evaluation for
-domain-specific cases, and the AgentInstruct code is not readily available.
+Previous work \citep{balaguer_rag_2024,yang_fingpt_2023,wu_pmc-llama_2023} has
+proposed methods for fine-tuning specialised LLMs, and techniques have been
+developed to improve general reasoning abilities with synthetic data
+\citep{shao_synthetic_2023,wang_self-instruct_2023}. However, there is
+relatively less literature evaluating the performance of state-of-the-art
+synthetic data generation techniques for fine-tuning domain-specific LLMs.
+AgentInstruct \citep{mitra_agentinstruct_2024} provides a promising agent-based
+approach, however the authors did not perform any evaluation for domain-specific
+cases, and the AgentInstruct code is not readily available.
 
 For this project, we intend to make the following contributions:
 
