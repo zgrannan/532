@@ -1,10 +1,11 @@
+from asyncio import Future
 from pydantic import BaseModel, Field
 from typing import List, Generator
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 import logging
 
-from helpers import get_json_response, get_messages_response, get_model
+from helpers import get_json_response, get_messages_response, get_model, get_messages_response_async
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -131,11 +132,11 @@ def generate_questions(
 DEFAULT_QUESTION_ANSWER_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
 
 def get_answer(
-    client: OpenAI,
+    client: AsyncOpenAI,
     chunk: str,
     question: str
-) -> str:
-    return get_messages_response(
+) -> Future[str]:
+    return get_messages_response_async(
         client=client,
         model=get_model(DEFAULT_QUESTION_ANSWER_MODEL),
         messages=[

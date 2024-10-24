@@ -1,6 +1,7 @@
+from asyncio import Future
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
-from openai import NotGiven, OpenAI
+from openai import NotGiven, OpenAI, AsyncOpenAI
 from pydantic import BaseModel
 from typing import Optional, List, Union
 from datasets import Dataset
@@ -55,6 +56,24 @@ def get_messages_response(
                     messages: Optional[List[dict]] ,
                     temperature: float = 0.0) -> str:
     response = client.chat.completions.create(
+        messages = messages,
+        model = model,
+        temperature = temperature,
+    )
+
+    return response.choices[0].message.content
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    before_sleep=before_sleep_log(logger, logging.ERROR),
+)
+async def get_messages_response_async(
+                    client: AsyncOpenAI,
+                    model: str,
+                    messages: Optional[List[dict]] ,
+                    temperature: float = 0.0) -> Future[str]:
+    response = await client.chat.completions.create(
         messages = messages,
         model = model,
         temperature = temperature,
@@ -127,6 +146,11 @@ def get_default_client() -> OpenAI:
     base_url = os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL)
     api_key = os.getenv("LLM_CLIENT_API_KEY", "lm_studio")
     return OpenAI(base_url=base_url, api_key=api_key)
+
+def get_async_client() -> AsyncOpenAI:
+    base_url = os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL)
+    api_key = os.getenv("LLM_CLIENT_API_KEY", "lm_studio")
+    return AsyncOpenAI(base_url=base_url, api_key=api_key)
 
 def get_model(default_model: str) -> str:
     return os.getenv("LLM_CLIENT_OVERRIDE_MODEL", default_model)

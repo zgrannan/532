@@ -28,7 +28,7 @@ JUDGE_SYSTEM_PROMPT = """
     better, and "ANSWER_B" if B is better (exclude the quotes).
 """
 
-JUDGE_MODEL = "meta-llama-3.1-70b-instruct"
+JUDGE_MODEL = "meta-llama-3.1-70b-instruct" # We want to use a good model here.
 
 def judge(
         context: str,
@@ -50,9 +50,19 @@ def judge(
 
     response = get_simple_response(client, get_model(JUDGE_MODEL), prompt)
 
+
     if response.strip().endswith("ANSWER_A"):
         return BetterAnswer.A
     elif response.strip().endswith("ANSWER_B"):
+        return BetterAnswer.B
+
+    # LLM didn't follow instructions, lets try some basic heuristics
+
+    if "ANSWER_A" in response.strip() and "ANSWER_B" in response.strip():
+        raise ValueError(f"Shouldn't have both ANSWER_A and ANSWER_B in response: {response}")
+    elif "ANSWER_A" in response.strip():
+        return BetterAnswer.A
+    elif "ANSWER_B" in response:
         return BetterAnswer.B
     else:
         raise ValueError(f"Unexpected response format (should end with ANSWER_A or ANSWER_B): {response}")
