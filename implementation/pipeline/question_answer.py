@@ -1,10 +1,10 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Generator
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 import logging
 
-from pipeline.helpers import get_json_response
+from helpers import get_json_response, get_messages_response, get_model
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,29 +76,76 @@ Your goal is to generate high-quality, detailed answers by following these instr
 {text}
 """
 
-def generate_questions(
-    client: OpenAI,
-    model: str,
-    chunk: str,
-    entities: List[str],
-    source: str,
+from typing import TypedDict
+
+class GenerateQuestionsArgs(TypedDict):
+    client: OpenAI
+    model: str
+    chunk: str
+    source: str
     source_type: str
-) -> List[str]:
+
+def _generate_questions(args: GenerateQuestionsArgs, entities: List[str]) -> List[str]:
     qa_prompt = QUESTION_EXTRACTION_SYSTEM_PROMPT.format(
-        text=chunk,
+        text=args["chunk"],
         entities=", ".join(entities),
-        source=source,
-        source_type=source_type
+        source=args["source"],
+        source_type=args["source_type"]
     )
     print(f"Length of qa_prompt: {len(qa_prompt)}")
     return get_json_response(
-        client=client,
-        model=model,
+        client=args["client"],
+        model=get_model(args["model"]),
         messages=[
             {
                 "role": "system",
-                "content":qa_prompt
+                "content": qa_prompt
             },
         ],
         response_format=QuestionAnswerModel,
     ).questions
+
+def generate_questions(
+    args: GenerateQuestionsArgs,
+    entities: List[str],
+    batch_size: int = 10
+) -> Generator[str, None, None]:
+    """
+    Generate questions based on provided entities and text chunk. Returns a
+    generator of questions instead of a list to facilitate streaming.
+
+    Args:
+        args (GenerateQuestionsArgs): Arguments including client, model, chunk,
+        source, and source_type. entities (List[str]): List of entities to
+        generate questions for. batch_size (int, optional): Number of entities
+        to process in each batch. Defaults to 10.
+
+    Yields:
+        str: Generated questions one by one.
+    """
+    for i in range(0, len(entities), batch_size): # iterate in batches of 10's
+        questions_batch = _generate_questions(args, entities[i: i + batch_size])
+        for question in questions_batch:
+            yield question
+
+DEFAULT_QUESTION_ANSWER_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
+
+def get_answer(
+    client: OpenAI,
+    chunk: str,
+    question: str
+) -> str:
+    return get_messages_response(
+        client=client,
+        model=get_model(DEFAULT_QUESTION_ANSWER_MODEL),
+        messages=[
+            {
+                "role": "system",
+                "content":ANSWER_EXTRACTION_SYSTEM_PROMPT.format(text=chunk)
+            },
+            {
+                "role": "user",
+                "content": question
+            },
+        ],
+    )

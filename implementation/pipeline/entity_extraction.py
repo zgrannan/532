@@ -1,10 +1,10 @@
 from pydantic import BaseModel, Field
 from typing import List
 from openai import OpenAI
+from helpers import get_json_response, get_model
 
 
-ENTITY_EXTRACTION_SYSTEM_PROMPT = \
-  """
+ENTITY_EXTRACTION_SYSTEM_PROMPT = """
   You are an entity extractor that extracts entities and facts from the following document in JSON. Your goal is to only extract entities and facts as a JSON object.
   Entities can be concepts, topics, objects, people, place, dates, or important information.
   Do not duplicate entities. Extract only the important information that is relevant to the document.
@@ -41,12 +41,31 @@ ENTITY_EXTRACTION_SYSTEM_PROMPT = \
     ]
   }}
 
+  Do not generate more than {max_entities} entities.
+
   Document:
   {text}
 """
+
 
 class EntityExtractionModel(BaseModel):
     entities: List[str]
     # facts: List[str]
 
 
+ENTITY_EXTRACTION_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
+
+
+def get_entities(client: OpenAI, text: str, max_entities: int) -> List[str]:
+    entity_prompt = ENTITY_EXTRACTION_SYSTEM_PROMPT.format(text=text, max_entities=10)
+    print(f"length of entity prompt: {len(entity_prompt)}")
+    entities = get_json_response(
+        client=client,
+        model=get_model(ENTITY_EXTRACTION_MODEL),
+        messages=[
+            {"role": "system", "content": entity_prompt},
+        ],
+        response_format=EntityExtractionModel,
+    )
+    # The model may ignore max_entities restriction in the prompt
+    return entities.entities[:max_entities]

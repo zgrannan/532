@@ -1,12 +1,14 @@
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
-from openai import OpenAI
+from openai import NotGiven, OpenAI
 from pydantic import BaseModel
 from typing import Optional, List, Union
 from datasets import Dataset
 from langchain_text_splitters import TokenTextSplitter
+import os
 import time
 
+LM_STUDIO_BASE_URL = "http://localhost:1234/v1"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -34,12 +36,11 @@ def get_json_response(
                     temperature: float = 0.0) -> BaseModel:
 
     response = client.beta.chat.completions.parse(
-        messages = messages,
-        model = model,
-        temperature = temperature,
+        messages=messages,
+        model=model,
+        temperature=temperature,
         response_format=response_format
     )
-
     return response.choices[0].message.parsed
 
 @retry(
@@ -122,9 +123,13 @@ def remove_duplicates(strings_list: List[str]):
     seen = set()
     return [s for s in strings_list if s not in seen and not seen.add(s)]
 
-def get_lm_studio_client() -> OpenAI:
-    lm_studio_base_url = "http://localhost:1234/v1"
-    return OpenAI(base_url=lm_studio_base_url, api_key="lm_studio")
+def get_default_client() -> OpenAI:
+    base_url = os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL)
+    api_key = os.getenv("LLM_CLIENT_API_KEY", "lm_studio")
+    return OpenAI(base_url=base_url, api_key=api_key)
+
+def get_model(default_model: str) -> str:
+    return os.getenv("LLM_CLIENT_OVERRIDE_MODEL", default_model)
 
 import time
 

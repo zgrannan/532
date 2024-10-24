@@ -1,4 +1,4 @@
-from helpers import get_simple_response, get_lm_studio_client
+from helpers import get_simple_response, get_default_client, get_model
 from enum import Enum
 from typing import TypedDict, List, Callable
 
@@ -46,9 +46,9 @@ def judge(
         answer_b=answer_b
     )
 
-    client = get_lm_studio_client()
+    client = get_default_client()
 
-    response = get_simple_response(client, JUDGE_MODEL, prompt)
+    response = get_simple_response(client, get_model(JUDGE_MODEL), prompt)
 
     if response.strip().endswith("ANSWER_A"):
         return BetterAnswer.A
