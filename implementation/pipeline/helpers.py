@@ -5,15 +5,27 @@ from pydantic import BaseModel
 from typing import Optional, List, Union
 from datasets import Dataset
 from langchain_text_splitters import TokenTextSplitter
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def timing_decorator(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()  # Record the start time
+        result = func(*args, **kwargs)
+        end_time = time.time()  # Record the end time
+        execution_time = end_time - start_time  # Calculate the difference
+        logger.info(f"{func.__name__} took {execution_time:.4f} seconds to execute")
+        return result
+    return wrapper
 
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=10),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
+@timing_decorator
 def get_json_response(
                     client: OpenAI, 
                     model: str,
@@ -31,10 +43,11 @@ def get_json_response(
     return response.choices[0].message.parsed
 
 @retry(
-    stop=stop_after_attempt(3),
+    stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=4, max=10),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
+@timing_decorator
 def get_messages_response(
                     client: OpenAI, 
                     model: str,
@@ -84,3 +97,17 @@ def split_text(
 
     splitter = TokenTextSplitter.from_tiktoken_encoder(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     return splitter.split_text(text)
+
+
+def remove_duplicates_by_key(dict_list: List[dict], key="question"):
+    # Create a new list without duplicates by tracking seen values
+    seen = set()
+    
+    return [d for d in dict_list if d[key] not in seen and not seen.add(d[key])]
+
+def remove_duplicates(strings_list: List[str]):
+    seen = set()
+    return [s for s in strings_list if s not in seen and not seen.add(s)]
+
+import time
+
