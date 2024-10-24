@@ -27,12 +27,12 @@ def timing_decorator(func):
 )
 @timing_decorator
 def get_json_response(
-                    client: OpenAI, 
+                    client: OpenAI,
                     model: str,
                     messages: Optional[List[dict]] ,
                     response_format: BaseModel,
                     temperature: float = 0.0) -> BaseModel:
-    
+
     response = client.beta.chat.completions.parse(
         messages = messages,
         model = model,
@@ -49,7 +49,7 @@ def get_json_response(
 )
 @timing_decorator
 def get_messages_response(
-                    client: OpenAI, 
+                    client: OpenAI,
                     model: str,
                     messages: Optional[List[dict]] ,
                     temperature: float = 0.0) -> str:
@@ -60,6 +60,19 @@ def get_messages_response(
     )
 
     return response.choices[0].message.content
+
+def get_simple_response(
+        client: OpenAI,
+        model: str,
+        message: str,
+        temperature: float = 0.0
+) -> str:
+    return get_messages_response(client, model, [
+        {
+            "role": "user",
+            "content": message
+        }
+    ], temperature)
 
 def list_of_dicts_to_dict_of_lists(list_of_dicts: List[dict]) -> dict:
     # Initialize an empty dictionary to store lists
@@ -102,12 +115,16 @@ def split_text(
 def remove_duplicates_by_key(dict_list: List[dict], key="question"):
     # Create a new list without duplicates by tracking seen values
     seen = set()
-    
+
     return [d for d in dict_list if d[key] not in seen and not seen.add(d[key])]
 
 def remove_duplicates(strings_list: List[str]):
     seen = set()
     return [s for s in strings_list if s not in seen and not seen.add(s)]
+
+def get_lm_studio_client() -> OpenAI:
+    lm_studio_base_url = "http://localhost:1234/v1"
+    return OpenAI(base_url=lm_studio_base_url, api_key="lm_studio")
 
 import time
 
