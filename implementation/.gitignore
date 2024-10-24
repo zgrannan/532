@@ -2,3 +2,5 @@
 *.csv
 *.pyc
 .cache/
+.venv
+.ipynb_checkpoints
