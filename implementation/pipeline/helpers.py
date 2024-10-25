@@ -4,7 +4,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_l
 from openai import NotGiven, OpenAI, AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
-from typing import Any, Dict, List, TypeVar, Union
+from typing import Any, AsyncGenerator, Dict, List, TypeVar, Union
 from datasets import Dataset # type: ignore
 from langchain_text_splitters import TokenTextSplitter
 import os
@@ -185,3 +185,8 @@ def get_async_client() -> AsyncOpenAI:
 
 def get_model(default_model: str) -> str:
     return os.getenv("LLM_CLIENT_OVERRIDE_MODEL", default_model)
+
+
+OnceT = TypeVar("OnceT")
+async def once(element: OnceT) -> AsyncGenerator[OnceT, None]:
+    yield element

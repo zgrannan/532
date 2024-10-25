@@ -11,6 +11,7 @@ from helpers import (
     get_model,
     get_messages_response_async,
 )
+from agent import OpenAIAgent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -85,67 +86,80 @@ from typing import TypedDict
 
 
 class GenerateQuestionsArgs(TypedDict):
-    client: AsyncOpenAI
-    model: str
     chunk: str
     source: str
     source_type: str
+    entities: List[str]
 
 
-async def _generate_questions(
-    args: GenerateQuestionsArgs, entities: List[str]
-) -> List[str]:
-    qa_prompt = QUESTION_EXTRACTION_SYSTEM_PROMPT.format(
-        text=args["chunk"],
-        entities=", ".join(entities),
-        source=args["source"],
-        source_type=args["source_type"],
-    )
-    print(f"Length of qa_prompt: {len(qa_prompt)}")
-    return (await get_json_response_async(
-        client=args["client"],
-        model=get_model(args["model"]),
-        messages=[
-            {"role": "system", "content": qa_prompt},
-        ],
-        response_format=QuestionAnswerModel,
-    )).questions
+class QuestionGenerator(OpenAIAgent[GenerateQuestionsArgs, str]):
+    def __init__(self, model: str, batch_size: int = 10):
+        super().__init__(model)
+        self.batch_size = batch_size
 
+    async def process(
+        self, inputs: AsyncGenerator[GenerateQuestionsArgs, None]
+    ) -> AsyncGenerator[str, None]:
+        async for input in inputs:
+            for i in range(0, len(input["entities"]), self.batch_size):
+                entities = input["entities"][i : i + self.batch_size]
+                for question in await self._generate_questions(
+                    input["chunk"], input["source"], input["source_type"], entities
+                ):
+                    yield question
 
-async def generate_questions(
-    args: GenerateQuestionsArgs, entities: List[str], batch_size: int = 10
-) -> AsyncGenerator[str, None]:
-    """
-    Generate questions based on provided entities and text chunk. Returns a
-    generator of questions instead of a list to facilitate streaming.
-
-    Args:
-        args (GenerateQuestionsArgs): Arguments including client, model, chunk,
-        source, and source_type. entities (List[str]): List of entities to
-        generate questions for. batch_size (int, optional): Number of entities
-        to process in each batch. Defaults to 10.
-
-    Yields:
-        str: Generated questions one by one.
-    """
-    for i in range(0, len(entities), batch_size):  # iterate in batches of 10's
-        questions_batch = await _generate_questions(args, entities[i : i + batch_size])
-        for question in questions_batch:
-            yield question
+    async def _generate_questions(
+        self, chunk: str, source: str, source_type: str, entities: List[str]
+    ) -> List[str]:
+        qa_prompt = QUESTION_EXTRACTION_SYSTEM_PROMPT.format(
+            text=chunk,
+            entities=", ".join(entities),
+            source=source,
+            source_type=source_type,
+        )
+        print(f"Length of qa_prompt: {len(qa_prompt)}")
+        return (
+            await get_json_response_async(
+                client=self.client,
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": qa_prompt},
+                ],
+                response_format=QuestionAnswerModel,
+            )
+        ).questions
 
 
 DEFAULT_QUESTION_ANSWER_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
 
 
-async def get_answer(client: AsyncOpenAI, chunk: str, question: str) -> str:
-    return await get_messages_response_async(
-        client=client,
-        model=get_model(DEFAULT_QUESTION_ANSWER_MODEL),
-        messages=[
-            {
-                "role": "system",
-                "content": ANSWER_EXTRACTION_SYSTEM_PROMPT.format(text=chunk),
-            },
-            {"role": "user", "content": question},
-        ],
-    )
+class QAPair(TypedDict):
+    question: str
+    answer: str
+
+
+class GetAnswerAgent(OpenAIAgent[str, QAPair]):
+    def __init__(self, chunk: str, source: str, source_type: str):
+        super().__init__(DEFAULT_QUESTION_ANSWER_MODEL)
+        self.text_chunk = chunk
+        self.source = source
+        self.source_type = source_type
+
+    async def process(
+        self, inputs: AsyncGenerator[str, None]
+    ) -> AsyncGenerator[QAPair, None]:
+        async for question in inputs:
+            answer = await get_messages_response_async(
+                client=self.client,
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": ANSWER_EXTRACTION_SYSTEM_PROMPT.format(
+                            text=self.text_chunk
+                        ),
+                    },
+                    {"role": "user", "content": question},
+                ],
+            )
+            yield QAPair(question=question, answer=answer)

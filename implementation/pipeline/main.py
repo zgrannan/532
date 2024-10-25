@@ -4,15 +4,14 @@ from openai import OpenAI, AsyncOpenAI
 import os
 import time
 from helpers import get_default_client
+from agent import Agent, OpenAIAgent, ComposedAgent
+from entity_extraction import EntityExtractionAgent
+from helpers import once
+from question_answer import QAPair
+from question_answer import GetAnswerAgent
+from question_answer import QuestionGenerator
 from utils.pdf import read_pdf
 from typing import Any, AsyncGenerator, Coroutine, Generator, List, TypeVar, TypedDict
-from entity_extraction import (
-    get_entities,
-)
-from question_answer import (
-    generate_questions,
-    get_answer,
-)
 from helpers import (
     get_async_client,
     split_text,
@@ -26,39 +25,61 @@ from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv())
 
 
-async def generate_questions_for_chunk(
-    client: AsyncOpenAI, chunk: str, model: str, source: str, source_type: str
-) -> AsyncGenerator[str, None]:
-    entities = await get_entities(client=client, text=chunk, max_entities=10)
-    print(f"Number of entities extracted: {len(entities)}")
-    return generate_questions(
-        {
-            "client": client,
-            "model": model,
-            "chunk": chunk,
-            "source": source,
-            "source_type": source_type,
-        },
-        entities,
-    )
+class QuestionsFromChunkArgs(TypedDict):
+    chunk: str
+    source: str
+    source_type: str
 
 
-class QAPair(TypedDict):
-    question: str
-    answer: str
+class QuestionsFromChunkAgent(OpenAIAgent[QuestionsFromChunkArgs, str]):
+    def __init__(self, model: str, entity_batch_size: int, question_batch_size: int):
+        super().__init__(model)
+        self.entity_batch_size = entity_batch_size
+        self.question_batch_size = question_batch_size
+        self.entity_extraction_agent = EntityExtractionAgent(
+            max_entities=self.entity_batch_size
+        )
+        self.question_generator_agent = QuestionGenerator(
+            model=self.model, batch_size=self.question_batch_size
+        )
+
+    async def process(
+        self, inputs: AsyncGenerator[QuestionsFromChunkArgs, None]
+    ) -> AsyncGenerator[str, None]:
+        async for input in inputs:
+            entities = (
+                await slurp_generator(
+                    self.entity_extraction_agent.process(once(input["chunk"]))
+                )
+            )[0]
+            print(f"Number of entities extracted: {len(entities)}")
+            async for question in self.question_generator_agent.process(
+                once(
+                    {
+                        "chunk": input["chunk"],
+                        "source": input["source"],
+                        "source_type": input["source_type"],
+                        "entities": entities,
+                    }
+                )
+            ):
+                yield question
 
 
-async def remove_duplicate_questions(
-    questions: AsyncGenerator[str, None]
-) -> AsyncGenerator[str, None]:
-    seen = set()
-    async for question in questions:
-        if question not in seen:
-            seen.add(question)
-            yield question
+class RemoveDuplicateQuestionsAgent(Agent[str, str]):
+    async def process(
+        self, inputs: AsyncGenerator[str, None]
+    ) -> AsyncGenerator[str, None]:
+        seen = set()
+        async for question in inputs:
+            if question not in seen:
+                seen.add(question)
+                yield question
 
 
 T = TypeVar("T")
+U = TypeVar("U")
+V = TypeVar("V")
 
 
 async def slurp_generator(generator: AsyncGenerator[T, None]) -> List[T]:
@@ -66,28 +87,25 @@ async def slurp_generator(generator: AsyncGenerator[T, None]) -> List[T]:
 
 
 async def generate_qa_pairs_for_chunk(
-    client: AsyncOpenAI, chunk: str, model: str, source: str, source_type: str
+    chunk: str, model: str, source: str, source_type: str
 ) -> AsyncGenerator[QAPair, None]:
-    questions = await generate_questions_for_chunk(
-        client=client, chunk=chunk, model=model, source=source, source_type=source_type
+    questions_from_chunk_agent = (
+        QuestionsFromChunkAgent(
+            model=model, entity_batch_size=10, question_batch_size=10
+        )
+        .and_then(RemoveDuplicateQuestionsAgent())
+        .chunk(10)
+        .parallel(lambda: GetAnswerAgent(chunk, source, source_type))
     )
 
-    questions = remove_duplicate_questions(questions)
-
-    # Question Answering -> Should check for hallucination
-    # We drain the questions generator here to enable the answers to be obtained
-    # in parallel
-    questions_list = await slurp_generator(questions)
-
-    answers = await asyncio.gather(
-        *[get_answer(client, chunk, question) for question in questions_list]
-    )
-
-    for question, answer in zip(questions_list, answers):
-        yield {
-            "question": question,
-            "answer": answer,
+    async for pair in questions_from_chunk_agent.process_once(
+        {
+            "chunk": chunk,
+            "source": source,
+            "source_type": source_type,
         }
+    ):
+        yield pair
 
 
 class FinetuneEntry(TypedDict):
@@ -96,15 +114,29 @@ class FinetuneEntry(TypedDict):
     source: str
 
 
+class ChunkTextAgent(Agent[str, str]):
+    def __init__(self, chunk_size: int, chunk_overlap: int):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+
+    async def process(
+        self, inputs: AsyncGenerator[str, None]
+    ) -> AsyncGenerator[str, None]:
+        async for input in inputs:
+            chunks = split_text(input, self.chunk_size, self.chunk_overlap)
+            for chunk in chunks:
+                yield chunk
+
+
 async def generate_qa_pairs(text: str, source: str, source_type: str) -> List[QAPair]:
     model = "meta-llama-3.1-8b-instruct-q6_k"
-    client = get_async_client()
-    chunks = split_text(text, chunk_size=5000, chunk_overlap=100)
+    chunk_agent = ChunkTextAgent(chunk_size=5000, chunk_overlap=100)
+    chunks = await slurp_generator(chunk_agent.process(once(text)))
     print(f"{len(chunks)} chunks created")
     chunked_results = await asyncio.gather(
         *[
             slurp_generator(
-                generate_qa_pairs_for_chunk(client, chunk, model, source, source_type)
+                generate_qa_pairs_for_chunk(chunk, model, source, source_type)
             )
             for chunk in chunks
         ]
@@ -171,9 +203,7 @@ async def main():
     repo_id = "CPSC532/arxiv_qa_data"
     config_name = "test_dataset_2024OCT24"
 
-    finetune_entries = await generate_finetune_entries_for_files_in_directory(
-        "../data"
-    )
+    finetune_entries = await generate_finetune_entries_for_files_in_directory("../data")
 
     # Save to csv using Pandas
     df = pd.DataFrame(finetune_entries)
