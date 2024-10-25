@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List
-from openai import OpenAI
-from helpers import get_json_response, get_model
+from openai import OpenAI, AsyncOpenAI
+from helpers import get_json_response_async, get_model
 
 
 ENTITY_EXTRACTION_SYSTEM_PROMPT = """
@@ -56,10 +56,10 @@ class EntityExtractionModel(BaseModel):
 ENTITY_EXTRACTION_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
 
 
-def get_entities(client: OpenAI, text: str, max_entities: int) -> List[str]:
+async def get_entities(client: AsyncOpenAI, text: str, max_entities: int) -> List[str]:
     entity_prompt = ENTITY_EXTRACTION_SYSTEM_PROMPT.format(text=text, max_entities=10)
     print(f"length of entity prompt: {len(entity_prompt)}")
-    entities = get_json_response(
+    entities = await get_json_response_async(
         client=client,
         model=get_model(ENTITY_EXTRACTION_MODEL),
         messages=[

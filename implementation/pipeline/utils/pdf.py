@@ -1,7 +1,7 @@
-import pymupdf4llm
-import os 
+import pymupdf4llm # type: ignore
+import os
 
-# Read PDF using pymudf4llm and return text 
+# Read PDF using pymudf4llm and return text
 
 def read_pdf(pdf_path):
     if not os.path.exists(pdf_path):

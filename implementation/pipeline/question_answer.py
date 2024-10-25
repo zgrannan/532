@@ -1,17 +1,21 @@
 from asyncio import Future
 from pydantic import BaseModel, Field
-from typing import List, Generator
+from typing import AsyncGenerator, List, Generator
 from openai import OpenAI, AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 import logging
 
-from helpers import get_json_response, get_messages_response, get_model, get_messages_response_async
+from helpers import (
+    get_json_response_async,
+    get_messages_response_async,
+    get_model,
+    get_messages_response_async,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-QUESTION_EXTRACTION_SYSTEM_PROMPT = \
-"""
+QUESTION_EXTRACTION_SYSTEM_PROMPT = """
 Given a piece of text, generate enough diverse questions to thoroughly explore the key entities mentioned.
 For each key entity, generate a set of 'what, why, summarize, where' questions, ensuring the questions cover different aspects of the entity.
 The questions should follow these instructions:
@@ -56,12 +60,12 @@ SourceType: "Paper"
 # SourceType: {source_type}
 """
 
+
 class QuestionAnswerModel(BaseModel):
     questions: List[str]
 
 
-ANSWER_EXTRACTION_SYSTEM_PROMPT = \
-"""
+ANSWER_EXTRACTION_SYSTEM_PROMPT = """
 You are tasked with answering questions based on a provided text.
 Your goal is to generate high-quality, detailed answers by following these instructions:
 
@@ -79,38 +83,38 @@ Your goal is to generate high-quality, detailed answers by following these instr
 
 from typing import TypedDict
 
+
 class GenerateQuestionsArgs(TypedDict):
-    client: OpenAI
+    client: AsyncOpenAI
     model: str
     chunk: str
     source: str
     source_type: str
 
-def _generate_questions(args: GenerateQuestionsArgs, entities: List[str]) -> List[str]:
+
+async def _generate_questions(
+    args: GenerateQuestionsArgs, entities: List[str]
+) -> List[str]:
     qa_prompt = QUESTION_EXTRACTION_SYSTEM_PROMPT.format(
         text=args["chunk"],
         entities=", ".join(entities),
         source=args["source"],
-        source_type=args["source_type"]
+        source_type=args["source_type"],
     )
     print(f"Length of qa_prompt: {len(qa_prompt)}")
-    return get_json_response(
+    return (await get_json_response_async(
         client=args["client"],
         model=get_model(args["model"]),
         messages=[
-            {
-                "role": "system",
-                "content": qa_prompt
-            },
+            {"role": "system", "content": qa_prompt},
         ],
         response_format=QuestionAnswerModel,
-    ).questions
+    )).questions
 
-def generate_questions(
-    args: GenerateQuestionsArgs,
-    entities: List[str],
-    batch_size: int = 10
-) -> Generator[str, None, None]:
+
+async def generate_questions(
+    args: GenerateQuestionsArgs, entities: List[str], batch_size: int = 10
+) -> AsyncGenerator[str, None]:
     """
     Generate questions based on provided entities and text chunk. Returns a
     generator of questions instead of a list to facilitate streaming.
@@ -124,29 +128,24 @@ def generate_questions(
     Yields:
         str: Generated questions one by one.
     """
-    for i in range(0, len(entities), batch_size): # iterate in batches of 10's
-        questions_batch = _generate_questions(args, entities[i: i + batch_size])
+    for i in range(0, len(entities), batch_size):  # iterate in batches of 10's
+        questions_batch = await _generate_questions(args, entities[i : i + batch_size])
         for question in questions_batch:
             yield question
 
+
 DEFAULT_QUESTION_ANSWER_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
 
-def get_answer(
-    client: AsyncOpenAI,
-    chunk: str,
-    question: str
-) -> Future[str]:
-    return get_messages_response_async(
+
+async def get_answer(client: AsyncOpenAI, chunk: str, question: str) -> str:
+    return await get_messages_response_async(
         client=client,
         model=get_model(DEFAULT_QUESTION_ANSWER_MODEL),
         messages=[
             {
                 "role": "system",
-                "content":ANSWER_EXTRACTION_SYSTEM_PROMPT.format(text=chunk)
+                "content": ANSWER_EXTRACTION_SYSTEM_PROMPT.format(text=chunk),
             },
-            {
-                "role": "user",
-                "content": question
-            },
+            {"role": "user", "content": question},
         ],
     )

@@ -2,9 +2,10 @@ from asyncio import Future
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 from openai import NotGiven, OpenAI, AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
-from typing import Optional, List, Union
-from datasets import Dataset
+from typing import Any, Dict, List, TypeVar, Union
+from datasets import Dataset # type: ignore
 from langchain_text_splitters import TokenTextSplitter
 import os
 import time
@@ -32,8 +33,8 @@ def timing_decorator(func):
 def get_json_response(
                     client: OpenAI,
                     model: str,
-                    messages: Optional[List[dict]] ,
-                    response_format: BaseModel,
+                    messages: List[ChatCompletionMessageParam],
+                    response_format: type[BaseModel],
                     temperature: float = 0.0) -> BaseModel:
 
     response = client.beta.chat.completions.parse(
@@ -42,7 +43,35 @@ def get_json_response(
         temperature=temperature,
         response_format=response_format
     )
-    return response.choices[0].message.parsed
+    result = response.choices[0].message.parsed
+    if result is None:
+        raise ValueError("No result returned from client")
+    return result
+
+T = TypeVar('T', bound=BaseModel)
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    before_sleep=before_sleep_log(logger, logging.ERROR),
+)
+async def get_json_response_async(
+                    client: AsyncOpenAI,
+                    model: str,
+                    messages: List[ChatCompletionMessageParam],
+                    response_format: type[T],
+                    temperature: float = 0.0) -> T:
+
+    response = await client.beta.chat.completions.parse(
+        messages=messages,
+        model=model,
+        temperature=temperature,
+        response_format=response_format
+    )
+    result = response.choices[0].message.parsed
+    if result is None:
+        raise ValueError("No result returned from client")
+    return result
 
 @retry(
     stop=stop_after_attempt(5),
@@ -53,7 +82,7 @@ def get_json_response(
 def get_messages_response(
                     client: OpenAI,
                     model: str,
-                    messages: Optional[List[dict]] ,
+                    messages: List[ChatCompletionMessageParam],
                     temperature: float = 0.0) -> str:
     response = client.chat.completions.create(
         messages = messages,
@@ -61,7 +90,10 @@ def get_messages_response(
         temperature = temperature,
     )
 
-    return response.choices[0].message.content
+    result = response.choices[0].message.content
+    if result is None:
+        raise ValueError("No result returned from client")
+    return result
 
 @retry(
     stop=stop_after_attempt(5),
@@ -71,15 +103,18 @@ def get_messages_response(
 async def get_messages_response_async(
                     client: AsyncOpenAI,
                     model: str,
-                    messages: Optional[List[dict]] ,
-                    temperature: float = 0.0) -> Future[str]:
+                    messages: List[ChatCompletionMessageParam],
+                    temperature: float = 0.0) -> str:
     response = await client.chat.completions.create(
         messages = messages,
         model = model,
         temperature = temperature,
     )
 
-    return response.choices[0].message.content
+    result = response.choices[0].message.content
+    if result is None:
+        raise ValueError("No result returned from client")
+    return result
 
 def get_simple_response(
         client: OpenAI,
@@ -94,9 +129,9 @@ def get_simple_response(
         }
     ], temperature)
 
-def list_of_dicts_to_dict_of_lists(list_of_dicts: List[dict]) -> dict:
+def list_of_dicts_to_dict_of_lists(list_of_dicts: List[dict]) -> Dict[str, List[Any]]:
     # Initialize an empty dictionary to store lists
-    dict_of_lists = {}
+    dict_of_lists: Dict[str, List[Any]] = {}
 
     # Iterate over each dictionary in the list
     for d in list_of_dicts:
@@ -132,15 +167,8 @@ def split_text(
     return splitter.split_text(text)
 
 
-def remove_duplicates_by_key(dict_list: List[dict], key="question"):
-    # Create a new list without duplicates by tracking seen values
-    seen = set()
-
-    return [d for d in dict_list if d[key] not in seen and not seen.add(d[key])]
-
-def remove_duplicates(strings_list: List[str]):
-    seen = set()
-    return [s for s in strings_list if s not in seen and not seen.add(s)]
+def remove_duplicates(strings_list: List[str]) -> List[str]:
+    return list(set(strings_list))
 
 def get_default_client() -> OpenAI:
     base_url = os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL)
@@ -154,6 +182,3 @@ def get_async_client() -> AsyncOpenAI:
 
 def get_model(default_model: str) -> str:
     return os.getenv("LLM_CLIENT_OVERRIDE_MODEL", default_model)
-
-import time
-
