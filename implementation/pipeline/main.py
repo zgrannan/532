@@ -43,9 +43,10 @@ class QuestionsFromChunkAgent(OpenAIAgent[QuestionsFromChunkArgs, str]):
             model=self.model, batch_size=self.question_batch_size
         )
 
-    async def process(
+    async def _process(
         self, inputs: AsyncGenerator[QuestionsFromChunkArgs, None]
     ) -> AsyncGenerator[str, None]:
+        assert isinstance(inputs, AsyncGenerator), "inputs must be an AsyncGenerator"
         async for input in inputs:
             entities = (
                 await slurp_generator(
@@ -67,9 +68,10 @@ class QuestionsFromChunkAgent(OpenAIAgent[QuestionsFromChunkArgs, str]):
 
 
 class RemoveDuplicateQuestionsAgent(Agent[str, str]):
-    async def process(
+    async def _process(
         self, inputs: AsyncGenerator[str, None]
     ) -> AsyncGenerator[str, None]:
+        assert isinstance(inputs, AsyncGenerator), "inputs must be an AsyncGenerator"
         seen = set()
         async for question in inputs:
             if question not in seen:
@@ -86,26 +88,34 @@ async def slurp_generator(generator: AsyncGenerator[T, None]) -> List[T]:
     return [item async for item in generator]
 
 
-async def generate_qa_pairs_for_chunk(
-    chunk: str, model: str, source: str, source_type: str
-) -> AsyncGenerator[QAPair, None]:
-    questions_from_chunk_agent = (
-        QuestionsFromChunkAgent(
-            model=model, entity_batch_size=10, question_batch_size=10
+class QAPairAgent(Agent[str, QAPair]):
+    def __init__(self, model: str, source: str, source_type: str):
+        super().__init__()
+        self.source = source
+        self.source_type = source_type
+        self.questions_from_chunk_agent = (
+            QuestionsFromChunkAgent(
+                model=model, entity_batch_size=10, question_batch_size=10
+            )
+            .and_then(RemoveDuplicateQuestionsAgent())
+            .chunk(10)
         )
-        .and_then(RemoveDuplicateQuestionsAgent())
-        .chunk(10)
-        .parallel(lambda: GetAnswerAgent(chunk, source, source_type))
-    )
 
-    async for pair in questions_from_chunk_agent.process_once(
-        {
-            "chunk": chunk,
-            "source": source,
-            "source_type": source_type,
-        }
-    ):
-        yield pair
+    async def _process(
+        self, inputs: AsyncGenerator[str, None]
+    ) -> AsyncGenerator[QAPair, None]:
+        async for chunk in inputs:
+            answers_agent = self.questions_from_chunk_agent.parallel(
+                lambda: GetAnswerAgent(chunk)
+            )
+            async for pair in answers_agent.process_once(
+                {
+                    "chunk": chunk,
+                    "source": self.source,
+                    "source_type": self.source_type,
+                }
+            ):
+                yield pair
 
 
 class FinetuneEntry(TypedDict):
@@ -119,7 +129,7 @@ class ChunkTextAgent(Agent[str, str]):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    async def process(
+    async def _process(
         self, inputs: AsyncGenerator[str, None]
     ) -> AsyncGenerator[str, None]:
         async for input in inputs:
@@ -130,18 +140,12 @@ class ChunkTextAgent(Agent[str, str]):
 
 async def generate_qa_pairs(text: str, source: str, source_type: str) -> List[QAPair]:
     model = "meta-llama-3.1-8b-instruct-q6_k"
-    chunk_agent = ChunkTextAgent(chunk_size=5000, chunk_overlap=100)
-    chunks = await slurp_generator(chunk_agent.process(once(text)))
-    print(f"{len(chunks)} chunks created")
-    chunked_results = await asyncio.gather(
-        *[
-            slurp_generator(
-                generate_qa_pairs_for_chunk(chunk, model, source, source_type)
-            )
-            for chunk in chunks
-        ]
+    chunk_agent = (
+        ChunkTextAgent(chunk_size=5000, chunk_overlap=100)
+        .chunk(10)
+        .parallel(lambda: QAPairAgent(model, source, source_type))
     )
-    return [qa_pair for qa_pair_list in chunked_results for qa_pair in qa_pair_list]
+    return await slurp_generator(chunk_agent.process(once(text)))
 
 
 async def generate_finetune_entries(
@@ -201,7 +205,7 @@ async def main():
 
     # Hugging Face
     repo_id = "CPSC532/arxiv_qa_data"
-    config_name = "test_dataset_2024OCT24"
+    config_name = "test_dataset_2024OCT25"
 
     finetune_entries = await generate_finetune_entries_for_files_in_directory("../data")
 

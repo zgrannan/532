@@ -97,7 +97,7 @@ class QuestionGenerator(OpenAIAgent[GenerateQuestionsArgs, str]):
         super().__init__(model)
         self.batch_size = batch_size
 
-    async def process(
+    async def _process(
         self, inputs: AsyncGenerator[GenerateQuestionsArgs, None]
     ) -> AsyncGenerator[str, None]:
         async for input in inputs:
@@ -139,13 +139,11 @@ class QAPair(TypedDict):
 
 
 class GetAnswerAgent(OpenAIAgent[str, QAPair]):
-    def __init__(self, chunk: str, source: str, source_type: str):
+    def __init__(self, chunk: str):
         super().__init__(DEFAULT_QUESTION_ANSWER_MODEL)
         self.text_chunk = chunk
-        self.source = source
-        self.source_type = source_type
 
-    async def process(
+    async def _process(
         self, inputs: AsyncGenerator[str, None]
     ) -> AsyncGenerator[QAPair, None]:
         async for question in inputs:

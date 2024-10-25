@@ -61,7 +61,7 @@ class EntityExtractionAgent(OpenAIAgent[str, list[str]]):
         super().__init__(ENTITY_EXTRACTION_MODEL)
         self.max_entities = max_entities
 
-    async def process(
+    async def _process(
         self, inputs: AsyncGenerator[str, None]
     ) -> AsyncGenerator[list[str], None]:
         async for input in inputs:

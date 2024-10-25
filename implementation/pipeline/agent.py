@@ -23,18 +23,22 @@ U = TypeVar("U")
 V = TypeVar("V")
 
 class Agent(ABC, Generic[Input, Output]):
+    def process(self, input: AsyncGenerator[Input, None]) -> AsyncGenerator[Output, None]:
+        assert isinstance(input, AsyncGenerator), "input must be an AsyncGenerator"
+        return self._process(input)
+
     @abstractmethod
-    async def process(
+    async def _process(
         self, input: AsyncGenerator[Input, None]
     ) -> AsyncGenerator[Output, None]:
         yield cast(
             Output, None
         )  # Just to indicate that this is an async generator and appease mypy
 
-    def and_then(self, next_agent):
+    def and_then(self, next_agent: "Agent[Output, V]") -> "ComposedAgent[Input, Output, V]":
         return ComposedAgent(self, next_agent)
 
-    def chunk(self, chunk_size: int):
+    def chunk(self, chunk_size: int) -> "ChunkingAgent[Input, Output]":
         return ChunkingAgent(self, chunk_size)
 
     def zip_with(self, next_agent):
@@ -51,7 +55,7 @@ class OpenAIAgent(Agent[Input, Output]):
         self.client = get_async_client()
 
     @abstractmethod
-    async def process(
+    async def _process(
         self, input: AsyncGenerator[Input, None]
     ) -> AsyncGenerator[Output, None]:
         yield cast(
@@ -112,7 +116,7 @@ class ParallelAgent(Agent[T, V], Generic[T, U, V]):
         self.agent = agent
         self.spawn = spawn
 
-    async def process(self, input: AsyncGenerator[T, None]) -> AsyncGenerator[V, None]:
+    async def _process(self, input: AsyncGenerator[T, None]) -> AsyncGenerator[V, None]:
         async for list in self.agent.process(input):
             async for elem in merge_iterators_in_order(
                 [self.spawn().process(once(elem)) for elem in list]
@@ -125,7 +129,7 @@ class MapAgent(Agent[T, V], Generic[T, U, V]):
         self.agent = agent
         self.func = func
 
-    async def process(self, input: AsyncGenerator[T, None]) -> AsyncGenerator[V, None]:
+    async def _process(self, input: AsyncGenerator[T, None]) -> AsyncGenerator[V, None]:
         async for elem in self.agent.process(input):
             yield self.func(elem)
 
@@ -135,7 +139,7 @@ class ComposedAgent(Agent[T, V], Generic[T, U, V]):
         self.agent1 = agent1
         self.agent2 = agent2
 
-    async def process(self, input: AsyncGenerator[T, None]) -> AsyncGenerator[V, None]:
+    async def _process(self, input: AsyncGenerator[T, None]) -> AsyncGenerator[V, None]:
         async for output in self.agent2.process(self.agent1.process(input)):
             yield output
 
@@ -144,7 +148,7 @@ class Duplicate(Agent[T, Tuple[U, U]], Generic[T, U]):
     def __init__(self, agent: Agent[T, U]):
         self.agent = agent
 
-    async def process(
+    async def _process(
         self, input: AsyncGenerator[T, None]
     ) -> AsyncGenerator[Tuple[U, U], None]:
         async for elem in self.agent.process(input):
@@ -156,7 +160,7 @@ class ZipWithAgent(Agent[T, Tuple[U, V]], Generic[T, U, V]):
         self.agent1 = agent1
         self.agent2 = agent2
 
-    async def process(
+    async def _process(
         self, input: AsyncGenerator[T, None]
     ) -> AsyncGenerator[Tuple[U, V], None]:
         async for elem in self.agent1.process(input):
@@ -169,10 +173,10 @@ class ChunkingAgent(Agent[T, List[U]]):
         self.agent = agent
         self.chunk_size = chunk_size
 
-    def parallel(self, spawn: Callable[[], Agent[U, V]]):
+    def parallel(self, spawn: Callable[[], Agent[U, V]]) -> "ParallelAgent[T, U, V]":
         return ParallelAgent(self, spawn)
 
-    async def process(
+    async def _process(
         self, input: AsyncGenerator[T, None]
     ) -> AsyncGenerator[List[U], None]:
         # Get the output generator from the underlying agent
