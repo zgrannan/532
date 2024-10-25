@@ -170,6 +170,9 @@ def split_text(
 def remove_duplicates(strings_list: List[str]) -> List[str]:
     return list(set(strings_list))
 
+def get_openai_client() -> OpenAI:
+    return OpenAI()
+
 def get_default_client() -> OpenAI:
     base_url = os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL)
     api_key = os.getenv("LLM_CLIENT_API_KEY", "lm_studio")
