@@ -1,6 +1,6 @@
 from asyncio import Future
 from pydantic import BaseModel, Field
-from typing import AsyncGenerator, List, Generator
+from typing import AsyncGenerator, AsyncIterator, List, Generator
 from openai import OpenAI, AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 import logging
@@ -98,8 +98,8 @@ class QuestionGenerator(OpenAIAgent[GenerateQuestionsArgs, str]):
         self.batch_size = batch_size
 
     async def _process(
-        self, inputs: AsyncGenerator[GenerateQuestionsArgs, None]
-    ) -> AsyncGenerator[str, None]:
+        self, inputs: AsyncIterator[GenerateQuestionsArgs]
+    ) -> AsyncIterator[str]:
         async for input in inputs:
             for i in range(0, len(input["entities"]), self.batch_size):
                 entities = input["entities"][i : i + self.batch_size]
@@ -144,8 +144,8 @@ class GetAnswerAgent(OpenAIAgent[str, QAPair]):
         self.text_chunk = chunk
 
     async def _process(
-        self, inputs: AsyncGenerator[str, None]
-    ) -> AsyncGenerator[QAPair, None]:
+        self, inputs: AsyncIterator[str]
+    ) -> AsyncIterator[QAPair]:
         async for question in inputs:
             answer = await get_messages_response_async(
                 client=self.client,

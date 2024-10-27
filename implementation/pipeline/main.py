@@ -11,7 +11,7 @@ from question_answer import QAPair
 from question_answer import GetAnswerAgent
 from question_answer import QuestionGenerator
 from utils.pdf import read_pdf
-from typing import Any, AsyncGenerator, Coroutine, Generator, List, TypeVar, TypedDict
+from typing import Any, AsyncGenerator, AsyncIterator, Coroutine, Generator, List, TypeVar, TypedDict
 from helpers import (
     get_async_client,
     split_text,
@@ -44,12 +44,11 @@ class QuestionsFromChunkAgent(OpenAIAgent[QuestionsFromChunkArgs, str]):
         )
 
     async def _process(
-        self, inputs: AsyncGenerator[QuestionsFromChunkArgs, None]
-    ) -> AsyncGenerator[str, None]:
-        assert isinstance(inputs, AsyncGenerator), "inputs must be an AsyncGenerator"
+        self, inputs: AsyncIterator[QuestionsFromChunkArgs]
+    ) -> AsyncIterator[str]:
         async for input in inputs:
             entities = (
-                await slurp_generator(
+                await slurp_iterator(
                     self.entity_extraction_agent.process(once(input["chunk"]))
                 )
             )[0]
@@ -69,9 +68,8 @@ class QuestionsFromChunkAgent(OpenAIAgent[QuestionsFromChunkArgs, str]):
 
 class RemoveDuplicateQuestionsAgent(Agent[str, str]):
     async def _process(
-        self, inputs: AsyncGenerator[str, None]
-    ) -> AsyncGenerator[str, None]:
-        assert isinstance(inputs, AsyncGenerator), "inputs must be an AsyncGenerator"
+        self, inputs: AsyncIterator[str]
+    ) -> AsyncIterator[str]:
         seen = set()
         async for question in inputs:
             if question not in seen:
@@ -84,7 +82,7 @@ U = TypeVar("U")
 V = TypeVar("V")
 
 
-async def slurp_generator(generator: AsyncGenerator[T, None]) -> List[T]:
+async def slurp_iterator(generator: AsyncIterator[T]) -> List[T]:
     return [item async for item in generator]
 
 
@@ -102,8 +100,8 @@ class QAPairAgent(Agent[str, QAPair]):
         )
 
     async def _process(
-        self, inputs: AsyncGenerator[str, None]
-    ) -> AsyncGenerator[QAPair, None]:
+        self, inputs: AsyncIterator[str]
+    ) -> AsyncIterator[QAPair]:
         async for chunk in inputs:
             answers_agent = self.questions_from_chunk_agent.parallel(
                 lambda: GetAnswerAgent(chunk)
@@ -130,8 +128,8 @@ class ChunkTextAgent(Agent[str, str]):
         self.chunk_overlap = chunk_overlap
 
     async def _process(
-        self, inputs: AsyncGenerator[str, None]
-    ) -> AsyncGenerator[str, None]:
+        self, inputs: AsyncIterator[str]
+    ) -> AsyncIterator[str]:
         async for input in inputs:
             chunks = split_text(input, self.chunk_size, self.chunk_overlap)
             for chunk in chunks:
@@ -145,7 +143,7 @@ async def generate_qa_pairs(text: str, source: str, source_type: str) -> List[QA
         .chunk(10)
         .parallel(lambda: QAPairAgent(model, source, source_type))
     )
-    return await slurp_generator(chunk_agent.process(once(text)))
+    return await slurp_iterator(chunk_agent.process(once(text)))
 
 
 async def generate_finetune_entries(

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import AsyncGenerator, List
+from typing import AsyncGenerator, AsyncIterator, List
 from openai import OpenAI, AsyncOpenAI
 from agent import OpenAIAgent
 from helpers import get_json_response_async, get_model
@@ -62,8 +62,8 @@ class EntityExtractionAgent(OpenAIAgent[str, list[str]]):
         self.max_entities = max_entities
 
     async def _process(
-        self, inputs: AsyncGenerator[str, None]
-    ) -> AsyncGenerator[list[str], None]:
+        self, inputs: AsyncIterator[str]
+    ) -> AsyncIterator[list[str]]:
         async for input in inputs:
             entity_prompt = ENTITY_EXTRACTION_SYSTEM_PROMPT.format(
                 text=input, max_entities=self.max_entities
