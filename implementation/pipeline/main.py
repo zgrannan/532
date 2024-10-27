@@ -11,7 +11,7 @@ from question_answer import QAPair
 from question_answer import GetAnswerAgent
 from question_answer import QuestionGenerator
 from utils.pdf import read_pdf
-from typing import Any, AsyncGenerator, AsyncIterator, Coroutine, Generator, List, TypeVar, TypedDict
+from typing import Any, AsyncGenerator, AsyncIterator, Coroutine, Generator, List, TypeVar, TypedDict, Tuple
 from helpers import (
     get_async_client,
     split_text,
@@ -21,6 +21,8 @@ from helpers import (
 )
 import pandas as pd
 from dotenv import find_dotenv, load_dotenv
+import argparse
+from datetime import datetime
 
 load_dotenv(find_dotenv())
 
@@ -100,11 +102,11 @@ class QAPairAgent(Agent[str, QAPair]):
         )
 
     async def _process(
-        self, inputs: AsyncIterator[str]
+        self, inputs: AsyncIterator[Tuple[int, str]]
     ) -> AsyncIterator[QAPair]:
-        async for chunk in inputs:
+        async for index, chunk in inputs:
             answers_agent = self.questions_from_chunk_agent.parallel(
-                lambda: GetAnswerAgent(chunk)
+                lambda: GetAnswerAgent(index, chunk)
             )
             async for pair in answers_agent.process_once(
                 {
@@ -132,14 +134,15 @@ class ChunkTextAgent(Agent[str, str]):
     ) -> AsyncIterator[str]:
         async for input in inputs:
             chunks = split_text(input, self.chunk_size, self.chunk_overlap)
-            for chunk in chunks:
-                yield chunk
+            for index, chunk in enumerate(chunks):
+                yield index, chunk
 
 
-async def generate_qa_pairs(text: str, source: str, source_type: str) -> List[QAPair]:
+async def generate_qa_pairs(text: str, source: str, source_type: str, chunk_size: int = 5000, chunk_overlap: int = 100) -> List[QAPair]:
+    
     model = "meta-llama-3.1-8b-instruct-q6_k"
     chunk_agent = (
-        ChunkTextAgent(chunk_size=5000, chunk_overlap=100)
+        ChunkTextAgent(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         .chunk(10)
         .parallel(lambda: QAPairAgent(model, source, source_type))
     )
@@ -150,12 +153,18 @@ async def generate_finetune_entries(
     filename: str, source: str, source_type: str
 ) -> List[FinetuneEntry]:
     text = read_pdf(filename)
-    qa_pairs = await generate_qa_pairs(text, source, source_type)
+    chunk_size = 5000
+    chunk_overlap = 100
+    qa_pairs = await generate_qa_pairs(text, source, source_type, chunk_size, chunk_overlap)
     return [
         {
             "question": qa["question"],
             "answer": qa["answer"],
             "source": source,
+            "chunk": qa["chunk"],
+            "chunk_index": qa["chunk_index"],
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap
         }
         for qa in qa_pairs
     ]
@@ -194,6 +203,7 @@ async def generate_finetune_entries_for_files_in_directory(
     return finetune_entries
 
 
+
 async def main():
     start_time = time.time()
 
@@ -203,13 +213,22 @@ async def main():
 
     # Hugging Face
     repo_id = "CPSC532/arxiv_qa_data"
-    config_name = "test_dataset_2024OCT25"
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config_name",
+        type=str,
+        default=datetime.now().strftime("%Y%m%d%H%M%S"),
+        help="Name of the config to use (default: timestamp)",
+    )
+    args = parser.parse_args()
+    config_name = args.config_name
 
     finetune_entries = await generate_finetune_entries_for_files_in_directory("../data")
 
     # Save to csv using Pandas
     df = pd.DataFrame(finetune_entries)
-    df.to_csv(f"{config_name}_output.csv", index=False)
+    df.to_csv(f"outputs/{config_name}_output.csv", index=False)
 
     # Upload to Huggingface
     qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)

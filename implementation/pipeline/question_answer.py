@@ -1,6 +1,6 @@
 from asyncio import Future
 from pydantic import BaseModel, Field
-from typing import AsyncGenerator, AsyncIterator, List, Generator
+from typing import AsyncGenerator, AsyncIterator, List, Generator, Tuple
 from openai import OpenAI, AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 import logging
@@ -136,12 +136,15 @@ DEFAULT_QUESTION_ANSWER_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
 class QAPair(TypedDict):
     question: str
     answer: str
+    chunk: str
+    chunk_index: int
 
 
-class GetAnswerAgent(OpenAIAgent[str, QAPair]):
-    def __init__(self, chunk: str):
+class GetAnswerAgent(OpenAIAgent[Tuple[int, str], QAPair]):
+    def __init__(self, chunk_index: int, chunk: str ):
         super().__init__(DEFAULT_QUESTION_ANSWER_MODEL)
         self.text_chunk = chunk
+        self.chunk_index = chunk_index
 
     async def _process(
         self, inputs: AsyncIterator[str]
@@ -160,4 +163,4 @@ class GetAnswerAgent(OpenAIAgent[str, QAPair]):
                     {"role": "user", "content": question},
                 ],
             )
-            yield QAPair(question=question, answer=answer)
+            yield QAPair(question=question, answer=answer, chunk=self.text_chunk, chunk_index=self.chunk_index)

@@ -4,3 +4,6 @@
 .cache/
 .venv
 .ipynb_checkpoints
+finetuning/*
+!finetuning/*.ipynb
+env/*
