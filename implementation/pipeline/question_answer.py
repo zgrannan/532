@@ -150,6 +150,7 @@ class GetAnswerAgent(OpenAIAgent[Tuple[int, str], QAPair]):
         self, inputs: AsyncIterator[str]
     ) -> AsyncIterator[QAPair]:
         async for question in inputs:
+            print(f"Generating answer for Question: {question}")
             answer = await get_messages_response_async(
                 client=self.client,
                 model=self.model,

@@ -122,9 +122,12 @@ class FinetuneEntry(TypedDict):
     question: str
     answer: str
     source: str
+    chunk: str
+    chunk_index: int
+    chunk_size: int
+    chunk_overlap: int
 
-
-class ChunkTextAgent(Agent[str, str]):
+class ChunkTextAgent(Agent[str, Tuple[int,str]]):
     def __init__(self, chunk_size: int, chunk_overlap: int):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -137,6 +140,14 @@ class ChunkTextAgent(Agent[str, str]):
             for index, chunk in enumerate(chunks):
                 yield index, chunk
 
+class RefineQuestionAgent(Agent[FinetuneEntry, FinetuneEntry]):
+    async def _process(
+        self, inputs: AsyncIterator[FinetuneEntry]
+    ) -> AsyncIterator[FinetuneEntry]:
+        print("Refining questions...")
+        async for input in inputs:
+            print(f"Refining question: {input['question']}")
+            yield input
 
 async def generate_qa_pairs(text: str, source: str, source_type: str, chunk_size: int = 5000, chunk_overlap: int = 100) -> List[QAPair]:
     
@@ -145,6 +156,7 @@ async def generate_qa_pairs(text: str, source: str, source_type: str, chunk_size
         ChunkTextAgent(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         .chunk(10)
         .parallel(lambda: QAPairAgent(model, source, source_type))
+        # .and_then(RefineQuestionAgent())
     )
     return await slurp_iterator(chunk_agent.process(once(text)))
 
@@ -174,13 +186,16 @@ def extract_title(pdf_path):
     with open(pdf_path, "rb") as file:
         reader = PyPDF2.PdfReader(file)
         # Attempt to extract title from metadata
-        if "/Title" in reader.metadata:
-            return reader.metadata["/Title"]
-        raise ValueError("No title found in metadata")
+        if "/Title" in reader.metadata and reader.metadata["/Title"]:
+                return reader.metadata["/Title"]
 
+        else: # use filename 
+            print("Using filename as title")
+            return os.path.splitext(os.path.basename(pdf_path))[0]
 
 async def generate_finetune_entries_from_file(filename: str) -> List[FinetuneEntry]:
     source = extract_title(filename)
+    print(f"Extracted title: {source}")
     return await generate_finetune_entries(filename, source, "paper")
 
 
@@ -224,11 +239,19 @@ async def main():
     args = parser.parse_args()
     config_name = args.config_name
 
+    # First stage getting intial Q/A Pairs
     finetune_entries = await generate_finetune_entries_for_files_in_directory("../data")
+    df = pd.DataFrame(finetune_entries)
+    
+    # if outputs folder doesn't exist, create it
+    if not os.path.exists("outputs"):
+        os.makedirs("outputs")
+    df.to_csv(f"outputs/{config_name}_output.csv", index=False)
+    # Seconds stage refining Q/A Pairs and getting answers from chunk + RAG 
+
 
     # Save to csv using Pandas
-    df = pd.DataFrame(finetune_entries)
-    df.to_csv(f"outputs/{config_name}_output.csv", index=False)
+
 
     # Upload to Huggingface
     qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)

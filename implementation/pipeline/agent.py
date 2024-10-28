@@ -7,11 +7,12 @@ from typing import (
     Generic,
     AsyncGenerator,
     cast,
+    Optional
 )
 
 import asyncio
 
-from helpers import get_async_client, get_model
+from helpers import get_async_client, get_model, get_embedding_func
 from abc import ABC, abstractmethod
 
 from helpers import once
@@ -91,9 +92,14 @@ class Agent(Pipeline[Input, Output], Generic[Input, Output]):
     """
 
 class OpenAIAgent(Agent[Input, Output]):
-    def __init__(self, model: str):
+    def __init__(self, model: str, embedding_model: Optional[str]= None):
         self.model = get_model(model)
         self.client = get_async_client()
+
+        if embedding_model:
+            self.embedding_func = get_embedding_func(embedding_model)
+        else:
+            self.embedding_func = None
 
     @abstractmethod
     async def _process(

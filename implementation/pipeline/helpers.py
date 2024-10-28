@@ -9,6 +9,7 @@ from datasets import Dataset # type: ignore
 from langchain_text_splitters import TokenTextSplitter
 import os
 import time
+from langchain_openai import OpenAIEmbeddings
 
 LM_STUDIO_BASE_URL = "http://localhost:1234/v1"
 logging.basicConfig(level=logging.INFO)
@@ -116,6 +117,24 @@ async def get_messages_response_async(
         raise ValueError("No result returned from client")
     return result
 
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    before_sleep=before_sleep_log(logger, logging.ERROR),
+)
+async def get_embeddings_resp_async(
+                    client: AsyncOpenAI,
+                    model: str,
+                    text: str,
+) -> List[float]:
+    response = await client.embeddings.create(
+        model=model,
+        input=text
+    )
+
+    result = response.data[0].embedding
+    return result
+
 def get_simple_response(
         client: OpenAI,
         model: str,
@@ -186,7 +205,14 @@ def get_async_client() -> AsyncOpenAI:
 def get_model(default_model: str) -> str:
     return os.getenv("LLM_CLIENT_OVERRIDE_MODEL", default_model)
 
-
 OnceT = TypeVar("OnceT")
 async def once(element: OnceT) -> AsyncGenerator[OnceT, None]:
     yield element
+
+def get_embedding_func(embedding_model) -> OpenAIEmbeddings:
+    return OpenAIEmbeddings(
+                            model=embedding_model,
+                            base_url = os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL),
+                            api_key = os.getenv("LLM_CLIENT_API_KEY", "lm_studio"),
+                            check_embedding_ctx_length=False # https://github.com/langchain-ai/langchain/issues/21318
+                        )
