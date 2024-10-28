@@ -229,6 +229,8 @@ async def main():
     CHUNK_SIZE=500
     CHUNK_OVERLAP=100
     RUN_NAME = "agent_instruct_2024OCT27_1"
+    repo_id = "CPSC532/arxiv_qa_data"
+
     embeddings_func = OpenAIEmbeddings(
                                         model=EMBEDDING_MODEL,
                                         base_url="http://localhost:1234/v1",
@@ -281,10 +283,13 @@ async def main():
     df = pd.DataFrame([r for result in results for r in result])
     df.to_csv("outputs/agent_instruct_2024OCT27_1_refined_output_3_1_8B.csv", index=False)
 
-
-    # Generate QA Answers from refined questions
-
-    # Save refined Q/A Pairs to a CSV file
+    qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)
+    upload_to_hf(
+        data=qa_pairs_dict,
+        repo_id=repo_id,
+        api_key=os.getenv("HUGGINGFACE_API_KEY"),
+        config_name="agent_instruct_2024OCT27_1_refined_output_3_1_8B",
+    )
     endtime = time.time()
     print(f"Execution time: {endtime - start_time} seconds")
 
