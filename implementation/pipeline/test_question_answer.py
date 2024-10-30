@@ -5,6 +5,6 @@ from question_answer import GetAnswerAgent
 
 class TestQuestionAnswer(unittest.IsolatedAsyncioTestCase):
     async def test_get_answer(self):
-        agent = GetAnswerAgent(chunk="My favorite food is sushi")
+        agent = GetAnswerAgent(chunk_index=0, chunk="My favorite food is sushi")
         async for response in agent.process_once("What is my favorite food?"):
             self.assertTrue("sushi" in response["answer"].lower())

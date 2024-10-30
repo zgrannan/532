@@ -1,4 +1,4 @@
-# Second stage refining Q/A Pairs and getting answers from chunk + RAG 
+# Second stage refining Q/A Pairs and getting answers from chunk + RAG
 import PyPDF2
 import asyncio
 from openai import OpenAI, AsyncOpenAI
@@ -30,12 +30,12 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 import chromadb
-from pydantic import BaseModel 
-import pandas as pd 
+from pydantic import BaseModel
+import pandas as pd
 from main import ChunkTextAgent, slurp_iterator, FinetuneEntry, RemoveDuplicateQuestionsAgent
 from uuid import uuid4
 load_dotenv(find_dotenv())
-import numpy as np 
+import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 # DEFAULT_REFINE_QUESTIONS_MODEL = "llama-3.2-3b-instruct"
@@ -46,7 +46,7 @@ class RefinedQuestionsModel(BaseModel):
 
 REFINED_QUESTIONS_PROMPT = """
     You are provided with a question and an answer.
-    Your job is to generate a set of new questions that can be answered with the given answer but is diverse and approaches 
+    Your job is to generate a set of new questions that can be answered with the given answer but is diverse and approaches
     the original question from different perspectives.
 
     Ensure that the generated questions are clear, purposeful, specific, and invoke critical thinking
@@ -65,7 +65,7 @@ class RefineQuestionsAgent(OpenAIAgent[FinetuneEntry, RefinedQuestionsModel]):
 
     async def _process(self,
                        inputs: AsyncIterator[FinetuneEntry]) -> AsyncIterator[str]:
-        
+
         async for input in inputs:
             print(f"Generating refined question for Question: {input['question']}")
             resp = await get_json_response_async(
@@ -75,7 +75,7 @@ class RefineQuestionsAgent(OpenAIAgent[FinetuneEntry, RefinedQuestionsModel]):
                     {
                         "role": "system",
                         "content": REFINED_QUESTIONS_PROMPT.format(
-                            question = input['question'], 
+                            question = input['question'],
                             answer = input['answer'],
                         ),
                     },
@@ -89,7 +89,7 @@ class RefineQuestionsAgent(OpenAIAgent[FinetuneEntry, RefinedQuestionsModel]):
                     "question": question,
                     "original_question": input['question'],
                 }
-               
+
 REFINED_RAG_ANSWER_PROMPT = """
     You are tasked with answering questions based on a provided text.
     You are provided with a question and an initial answer.
@@ -97,7 +97,7 @@ REFINED_RAG_ANSWER_PROMPT = """
 
     Your goal is to generate high-quality, detailed answers by following these instructions:
     If the answer is not found in the text, respond with "NO ANSWER FOUND"
-    
+
     # Instructions:
     1. Reference the Text: Answer directly using relevant details from the text. Avoid introducing unsupported claims.
     2. Comprehensive Response: Address all parts of the question thoroughly, covering multiple aspects if needed.
@@ -126,7 +126,7 @@ class RAGAgent(OpenAIAgent[FinetuneEntry, str]):
         self.k = k
     async def _process(self,
                        inputs: AsyncIterator[FinetuneEntry]) -> AsyncIterator[str]:
-        # Test rag 
+        # Test rag
 
         # Get docs from vector store
         async for input in inputs:
@@ -163,21 +163,18 @@ async def chunk_and_embed_files(
                             ):
 
     text = read_pdf(filepath)
-    chunk_agent = (
-        ChunkTextAgent(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        .chunk(10)
-    )
+    chunk_agent = ChunkTextAgent(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-    chunks = (await slurp_iterator(chunk_agent.process(once(text))))[0]
+    chunks = chunk_agent.process_once(text)
     # embed chunks and upload into vectorDB
     docs = [Document(page_content=doc[1],
-                     metadata={"filename": os.path.splitext(os.path.basename(filepath))[0]}) 
-                     for doc in chunks]
+                     metadata={"filename": os.path.splitext(os.path.basename(filepath))[0]})
+                     async for doc in chunks]
     uuids = [str(uuid4()) for _ in range(len(docs))]
     print(f"Number of chunks uploaded: {len(docs)}")
 
     return await vector_store.aadd_documents(docs, ids=uuids)
- 
+
 
 async def generate_refined_questions(inputs: FinetuneEntry) -> List[FinetuneEntry]:
     refine_question_agent = (
@@ -191,25 +188,22 @@ async def generate_refined_questions(inputs: FinetuneEntry) -> List[FinetuneEntr
 
 async def generate_rag_answers(inputs: FinetuneEntry,
                                vector_store: Chroma) -> List[FinetuneEntry]:
-    rag_agent = RAGAgent(vector_store)
-
-    res = await slurp_iterator(rag_agent.process(once(inputs)))
-    return res
+    return await slurp_iterator(RAGAgent(vector_store).process_once(inputs))
 
 def remove_similar_questions(inputs: List[FinetuneEntry], embeddings_func: OpenAIEmbeddings, threshold=0.80) -> List[FinetuneEntry]:
     embeddings = [embeddings_func.embed_query(input['question']) for input in inputs]
     similarity_matrix = cosine_similarity(embeddings)
-    
+
     # Set diagonal to 0 to avoid self-matches
     np.fill_diagonal(similarity_matrix, 0)
-    
+
     # Find pairs above threshold
     similar_pairs = []
     for i in range(len(similarity_matrix)):
         for j in range(i + 1, len(similarity_matrix)):
             if similarity_matrix[i][j] > threshold:
                 similar_pairs.append((i, j))
-    
+
     indices_to_remove = set()
     # For each similar pair, remove the second question
     for pair in similar_pairs:
@@ -221,14 +215,14 @@ def remove_similar_questions(inputs: List[FinetuneEntry], embeddings_func: OpenA
 async def main():
     start_time = time.time()
 
-    # Input will be output from first stage main.py() 
+    # Input will be output from first stage main.py()
 
-    MODEL_3B = "llama-3.2-3b-instruct" 
+    MODEL_3B = "llama-3.2-3b-instruct"
     EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32" # on LM Studio
     DIRECTORY = "../data"
     CHUNK_SIZE=500
     CHUNK_OVERLAP=100
-    RUN_NAME = "agent_instruct_2024OCT27_1"
+    RUN_NAME = "20241028165628"
     repo_id = "CPSC532/arxiv_qa_data"
 
     embeddings_func = OpenAIEmbeddings(
@@ -238,11 +232,11 @@ async def main():
                                         check_embedding_ctx_length=False # https://github.com/langchain-ai/langchain/issues/21318
                                     )
     client = chromadb.PersistentClient(path="./chroma_langchain_db"  )
-    if RUN_NAME not in [x.name for x in client.list_collections]:
+    if RUN_NAME not in [x.name for x in client.list_collections()]:
         vector_store = Chroma(
             collection_name=RUN_NAME, # Config name,
             embedding_function=embeddings_func,
-            persist_directory="./chroma_langchain_db"  
+            persist_directory="./chroma_langchain_db"
         )
 
         pdf_files = [
@@ -251,9 +245,9 @@ async def main():
             if filename.endswith(".pdf")
         ]
 
-        vectorize_tasks = [chunk_and_embed_files(file, embeddings_func, vector_store, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP) 
+        vectorize_tasks = [chunk_and_embed_files(file, embeddings_func, vector_store, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
                 for file in pdf_files]
-        # Embed Documents into a vectorDB ChromaDB 
+        # Embed Documents into a vectorDB ChromaDB
         vectorize_results = await asyncio.gather(*vectorize_tasks)
 
     else:
@@ -261,7 +255,7 @@ async def main():
     # print(client.list_collections().count())
 
     # From first stage main.py(), refine Q/A Pairs and get answers from chunk + RAG
-    filename= "outputs/agent_instruct_2024OCT27_1_output.csv"
+    filename= "outputs/20241028165628_output.csv"
     df = pd.read_csv(filename)
     finetune_entries = df.to_dict("records")
     finetune_entries = [FinetuneEntry(**entry) for entry in finetune_entries]
@@ -272,7 +266,7 @@ async def main():
     results = await asyncio.gather(*tasks)
     results = [r for result in results for r in result]
 
-    # remove similar questions 
+    # remove similar questions
     print(f"Number of refined questions: {len(results)}")
     results = remove_similar_questions(results, embeddings_func, threshold=0.85)
     print(f"Number of refined questions after removing similar questions: {len(results)}")

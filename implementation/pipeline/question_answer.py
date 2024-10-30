@@ -12,6 +12,12 @@ from helpers import (
     get_messages_response_async,
 )
 from agent import OpenAIAgent
+from pipeline_types import FinetuneEntry
+from pipeline_types import (
+    EnrichedPdfChunkWithEntities,
+    EnrichedPdfChunkWithQuestion,
+    EnrichedPdfChunkWithQAPair,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -85,28 +91,29 @@ Your goal is to generate high-quality, detailed answers by following these instr
 from typing import TypedDict
 
 
-class GenerateQuestionsArgs(TypedDict):
-    chunk: str
-    source: str
-    source_type: str
-    entities: List[str]
-
-
-class QuestionGenerator(OpenAIAgent[GenerateQuestionsArgs, str]):
+class QuestionGenerator(
+    OpenAIAgent[EnrichedPdfChunkWithEntities, EnrichedPdfChunkWithQuestion]
+):
     def __init__(self, model: str, batch_size: int = 10):
         super().__init__(model)
         self.batch_size = batch_size
 
     async def _process(
-        self, inputs: AsyncIterator[GenerateQuestionsArgs]
-    ) -> AsyncIterator[str]:
+        self, inputs: AsyncIterator[EnrichedPdfChunkWithEntities]
+    ) -> AsyncIterator[EnrichedPdfChunkWithQuestion]:
         async for input in inputs:
             for i in range(0, len(input["entities"]), self.batch_size):
                 entities = input["entities"][i : i + self.batch_size]
                 for question in await self._generate_questions(
                     input["chunk"], input["source"], input["source_type"], entities
                 ):
-                    yield question
+                    yield EnrichedPdfChunkWithQuestion(
+                        filename=input["filename"],
+                        source=input["source"],
+                        source_type=input["source_type"],
+                        chunk=input["chunk"],
+                        question=question,
+                    )
 
     async def _generate_questions(
         self, chunk: str, source: str, source_type: str, entities: List[str]
@@ -140,17 +147,15 @@ class QAPair(TypedDict):
     chunk_index: int
 
 
-class GetAnswerAgent(OpenAIAgent[Tuple[int, str], QAPair]):
-    def __init__(self, chunk_index: int, chunk: str ):
+class GetAnswerAgent(OpenAIAgent[EnrichedPdfChunkWithQuestion, FinetuneEntry]):
+    def __init__(self):
         super().__init__(DEFAULT_QUESTION_ANSWER_MODEL)
-        self.text_chunk = chunk
-        self.chunk_index = chunk_index
 
     async def _process(
-        self, inputs: AsyncIterator[str]
-    ) -> AsyncIterator[QAPair]:
-        async for question in inputs:
-            print(f"Generating answer for Question: {question}")
+        self, inputs: AsyncIterator[EnrichedPdfChunkWithQuestion]
+    ) -> AsyncIterator[EnrichedPdfChunkWithQAPair]:
+        async for input in inputs:
+            print(f"Generating answer for Question: {input['question']}")
             answer = await get_messages_response_async(
                 client=self.client,
                 model=self.model,
@@ -158,10 +163,17 @@ class GetAnswerAgent(OpenAIAgent[Tuple[int, str], QAPair]):
                     {
                         "role": "system",
                         "content": ANSWER_EXTRACTION_SYSTEM_PROMPT.format(
-                            text=self.text_chunk
+                            text=input["chunk"]
                         ),
                     },
-                    {"role": "user", "content": question},
+                    {"role": "user", "content": input["question"]},
                 ],
             )
-            yield QAPair(question=question, answer=answer, chunk=self.text_chunk, chunk_index=self.chunk_index)
+            yield FinetuneEntry(
+                filename=input["filename"],
+                source=input["source"],
+                source_type=input["source_type"],
+                chunk=input["chunk"],
+                question=input["question"],
+                answer=answer,
+            )

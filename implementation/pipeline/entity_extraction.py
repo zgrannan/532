@@ -3,6 +3,7 @@ from typing import AsyncGenerator, AsyncIterator, List
 from openai import OpenAI, AsyncOpenAI
 from agent import OpenAIAgent
 from helpers import get_json_response_async, get_model
+from agent import MapAgent
 
 
 ENTITY_EXTRACTION_SYSTEM_PROMPT = """
@@ -56,25 +57,23 @@ class EntityExtractionModel(BaseModel):
 
 ENTITY_EXTRACTION_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
 
-class EntityExtractionAgent(OpenAIAgent[str, list[str]]):
+
+class EntityExtractionAgent(OpenAIAgent[str, List[str]], MapAgent[str, List[str]]):
     def __init__(self, max_entities: int):
         super().__init__(ENTITY_EXTRACTION_MODEL)
         self.max_entities = max_entities
 
-    async def _process(
-        self, inputs: AsyncIterator[str]
-    ) -> AsyncIterator[list[str]]:
-        async for input in inputs:
-            entity_prompt = ENTITY_EXTRACTION_SYSTEM_PROMPT.format(
-                text=input, max_entities=self.max_entities
-            )
-            entities = await get_json_response_async(
-                client=self.client,
-                model=get_model(ENTITY_EXTRACTION_MODEL),
-                messages=[
-                    {"role": "system", "content": entity_prompt},
-                ],
-                response_format=EntityExtractionModel,
-            )
-            # The model may ignore max_entities restriction in the prompt
-            yield entities.entities[:self.max_entities]
+    async def handle(self, input: str) -> List[str]:
+        entity_prompt = ENTITY_EXTRACTION_SYSTEM_PROMPT.format(
+            text=input, max_entities=self.max_entities
+        )
+        entities = await get_json_response_async(
+            client=self.client,
+            model=get_model(ENTITY_EXTRACTION_MODEL),
+            messages=[
+                {"role": "system", "content": entity_prompt},
+            ],
+            response_format=EntityExtractionModel,
+        )
+        # The model may ignore max_entities restriction in the prompt
+        return entities.entities[: self.max_entities]

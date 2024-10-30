@@ -1,16 +1,19 @@
 from typing import (
     AsyncIterator,
     Callable,
+    Iterator,
     List,
     Tuple,
     TypeVar,
     Generic,
     AsyncGenerator,
     cast,
-    Optional
+    Optional,
 )
 
 import asyncio
+
+from langchain_openai import OpenAIEmbeddings
 
 from helpers import get_async_client, get_model, get_embedding_func
 from abc import ABC, abstractmethod
@@ -22,6 +25,8 @@ Output = TypeVar("Output")
 T = TypeVar("T")
 U = TypeVar("U")
 V = TypeVar("V")
+TT = TypeVar("TT")
+UU = TypeVar("UU")
 
 
 class Pipeline(ABC, Generic[Input, Output]):
@@ -31,19 +36,22 @@ class Pipeline(ABC, Generic[Input, Output]):
     """
 
     @abstractmethod
-    async def _process(
-        self, input: AsyncIterator[Input]
-    ) -> AsyncIterator[Output]:
+    async def _process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
         yield cast(
             Output, None
         )  # Just to indicate that this is an async generator and appease mypy
 
-    def process(
-        self, input: AsyncIterator[Input]
-    ) -> AsyncIterator[Output]:
+    def process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
         assert isinstance(input, AsyncIterator), "input must be an AsyncIterator"
         return self._process(input)
 
+    def fan_out(
+        self, max_parallelism: int, agent: "Agent[Output, V]"
+    ) -> "Agent[Input, V]":
+        return self.and_then(ParallelAgent(max_parallelism, agent))
+
+    def map(self, func: Callable[[Output], V]) -> "FuncAgent[Input, Output, V]":
+        return FuncAgent(self, func)
 
     def and_then(
         self, next: "Pipeline[Output, V]"
@@ -56,8 +64,24 @@ class Pipeline(ABC, Generic[Input, Output]):
     def zip_with(self, next_agent):
         return ZipWithAgent(self, next_agent)
 
+    def enrich_with(
+        self,
+        pipeline: "Pipeline[TT, UU]",
+        to: Callable[[Output], TT],
+        frm: Callable[[Output, UU], V],
+    ) -> "Pipeline[Input, V]":
+        return self.and_then(EnrichAgent(pipeline, to, frm))
+
     def process_once(self, input: Input):
         return self.process(once(input))
+
+    def process_list(self, input: List[Input]) -> AsyncIterator[Output]:
+        async def async_generator(input: List[Input]) -> AsyncIterator[Input]:
+            for item in input:
+                yield item
+
+        return self.process(async_generator(input))
+
 
 class Agent(Pipeline[Input, Output], Generic[Input, Output]):
     """
@@ -91,23 +115,49 @@ class Agent(Pipeline[Input, Output], Generic[Input, Output]):
     to use depends on the use-case.
     """
 
-class OpenAIAgent(Agent[Input, Output]):
-    def __init__(self, model: str, embedding_model: Optional[str]= None):
-        self.model = get_model(model)
-        self.client = get_async_client()
 
-        if embedding_model:
-            self.embedding_func = get_embedding_func(embedding_model)
-        else:
-            self.embedding_func = None
+class MapAgent(Agent[Input, Output], Generic[Input, Output]):
+    async def _process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
+        async for elem in input:
+            yield await self.handle(elem)
 
     @abstractmethod
-    async def _process(
-        self, input: AsyncIterator[Input]
-    ) -> AsyncIterator[Output]:
-        yield cast(
-            Output, None
-        )  # Just to indicate that this is an async generator and appease mypy
+    async def handle(self, input: Input) -> Output:
+        pass
+
+
+class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
+    def __init__(
+        self,
+        agent: MapAgent[T, U],
+        to: Callable[[Input], T],
+        frm: Callable[[Input, U], Output],
+    ):
+        self.agent = agent
+        self.to = to
+        self.frm = frm
+
+    async def _process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
+        queue: asyncio.Queue[Input] = asyncio.Queue()
+
+        async def to_iterator() -> AsyncIterator[T]:
+            async for elem in input:
+                await queue.put(elem)
+                yield self.to(elem)
+
+        async for elem in self.agent.process(to_iterator()):
+            orig_input = await queue.get()
+            yield self.frm(orig_input, elem)
+
+
+class OpenAIAgent(Agent[Input, Output]):
+    def __init__(self, model: str, embedding_model: Optional[str] = None):
+        self.model = get_model(model)
+        self.client = get_async_client()
+        self.embedding_func: Optional[OpenAIEmbeddings] = (
+            get_embedding_func(embedding_model) if embedding_model else None
+        )
+
 
 async def merge_iterators_in_order(
     iterators: List[AsyncIterator[T]], max_queue_size: int = 10
@@ -141,6 +191,7 @@ async def merge_iterators_in_order(
     # Wait for all fill tasks to complete
     await asyncio.gather(*tasks)
 
+
 async def _fill_queue(iterator: AsyncIterator[T], queue: asyncio.Queue):
     """Fill the queue with items from the iterator."""
     try:
@@ -149,31 +200,67 @@ async def _fill_queue(iterator: AsyncIterator[T], queue: asyncio.Queue):
     finally:
         await queue.put(_QueueDone)
 
+
 class _QueueDone:
     """Sentinel value to indicate that the iterator is exhausted."""
 
     pass
 
-class ParallelAgent(Agent[T, V], Generic[T, U, V]):
-    def __init__(self, agent: Agent[T, List[U]], spawn: Callable[[], Agent[U, V]]):
+
+class _AllDone:
+    """Sentinel value to indicate that the iterator is exhausted."""
+
+    pass
+
+class ParallelAgent(Agent[T, U]):
+    def __init__(self, max_parallelism: int, agent: "Agent[T, U]"):
+        self.max_parallelism = max_parallelism
         self.agent = agent
-        self.spawn = spawn
+        self.semaphore = asyncio.Semaphore(max_parallelism)
 
-    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[V]:
-        async for list in self.agent.process(input):
-            async for elem in merge_iterators_in_order(
-                [self.spawn().process(once(elem)) for elem in list]
-            ):
-                yield elem
+    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[U]:
+        queue: asyncio.Queue[U] = asyncio.Queue()
+        tasks = []
 
-class MapAgent(Agent[T, V], Generic[T, U, V]):
-    def __init__(self, agent: Agent[T, U], func: Callable[[U], V]):
+        async def worker(elem: T):
+            async with self.semaphore:
+                # Process the element and put outputs into the queue
+                async for output in self.agent.process_once(elem):
+                    await queue.put(output)
+
+        async def producer():
+            # Start worker tasks for each input element
+            async for elem in input:
+                task = asyncio.create_task(worker(elem))
+                tasks.append(task)
+            # Wait for all tasks to complete
+            await asyncio.gather(*tasks)
+            # Signal that processing is complete
+            await queue.put(None)
+
+        # Start the producer task
+        producer_task = asyncio.create_task(producer())
+
+        # Consume outputs from the queue as they become available
+        while True:
+            output = await queue.get()
+            if output is None:
+                break
+            yield output
+
+        # Ensure the producer task has completed
+        await producer_task
+
+
+class FuncAgent(Agent[T, V], Generic[T, U, V]):
+    def __init__(self, agent: Pipeline[T, U], func: Callable[[U], V]):
         self.agent = agent
         self.func = func
 
     async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[V]:
         async for elem in self.agent.process(input):
             yield self.func(elem)
+
 
 class ComposedAgent(Agent[T, V], Generic[T, U, V]):
     def __init__(self, agent1: Pipeline[T, U], agent2: Pipeline[U, V]):
@@ -184,39 +271,33 @@ class ComposedAgent(Agent[T, V], Generic[T, U, V]):
         async for output in self.agent2.process(self.agent1.process(input)):
             yield output
 
+
 class Duplicate(Agent[T, Tuple[U, U]], Generic[T, U]):
     def __init__(self, agent: Agent[T, U]):
         self.agent = agent
 
-    async def _process(
-        self, input: AsyncIterator[T]
-    ) -> AsyncIterator[Tuple[U, U]]:
+    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[Tuple[U, U]]:
         async for elem in self.agent.process(input):
             yield (elem, elem)
+
 
 class ZipWithAgent(Agent[T, Tuple[U, V]], Generic[T, U, V]):
     def __init__(self, agent1: Agent[T, U], agent2: Agent[U, V]):
         self.agent1 = agent1
         self.agent2 = agent2
 
-    async def _process(
-        self, input: AsyncIterator[T]
-    ) -> AsyncIterator[Tuple[U, V]]:
+    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[Tuple[U, V]]:
         async for elem in self.agent1.process(input):
             async for elem2 in self.agent2.process(once(elem)):
                 yield (elem, elem2)
+
 
 class ChunkingAgent(Agent[T, List[U]]):
     def __init__(self, agent: Pipeline[T, U], chunk_size: int):
         self.agent = agent
         self.chunk_size = chunk_size
 
-    def parallel(self, spawn: Callable[[], Agent[U, V]]) -> "ParallelAgent[T, U, V]":
-        return ParallelAgent(self, spawn)
-
-    async def _process(
-        self, input: AsyncIterator[T]
-    ) -> AsyncIterator[List[U]]:
+    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[List[U]]:
         # Get the output generator from the underlying agent
         output_generator = self.agent.process(input)
         chunk: List[U] = []
