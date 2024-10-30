@@ -1,5 +1,9 @@
 import itertools
+import json
+import os
+import tempfile
 from typing import (
+    Any,
     AsyncIterator,
     Callable,
     Dict,
@@ -16,11 +20,13 @@ from typing import (
 import asyncio
 
 from langchain_openai import OpenAIEmbeddings
+from openai.types.chat import ChatCompletionMessageParam
 
 from helpers import get_async_client, get_model, get_embedding_func
 from abc import ABC, abstractmethod
 
 from helpers import once
+from helpers import get_messages_response_async
 
 Input = TypeVar("Input")
 Output = TypeVar("Output")
@@ -97,12 +103,20 @@ class Pipeline(ABC, Generic[Input, Output]):
 
     def to_dot(self) -> str:
         # Generate the DOT string
+        START_ID = next(Agent.id_counter)
+        END_ID = next(Agent.id_counter)
+        nodes = {**self.nodes(), START_ID: "START", END_ID: "END"}
+        edges = [
+            (START_ID, self.input_id()),
+            *self.edges(),
+            (self.output_id(), END_ID),
+        ]
         dot_lines = ["digraph G {"]
-        for node_id, label in self.nodes().items():
+        for node_id, label in nodes.items():
             # Escape quotes in labels
             label = label.replace('"', '\\"')
             dot_lines.append(f'    node{node_id} [label="{label}"];')
-        for from_id, to_id in self.edges():
+        for from_id, to_id in edges:
             dot_lines.append(f"    node{from_id} -> node{to_id};")
         dot_lines.append("}")
         return "\n".join(dot_lines)
@@ -159,18 +173,45 @@ class Agent(Pipeline[Input, Output], Generic[Input, Output]):
         return {self.id: self.name}
 
 
-class MapAgent(Agent[Input, Output], Generic[Input, Output]):
+class StatelessAgent(Agent[Input, Output]):
+    """
+    An agent whose `_process` method does not maintain state, i.e. does not
+    return different results based on the order of its inputs
+    """
+
+    def __init__(self, name: Optional[str] = None):
+        super().__init__(name)
+
+    @abstractmethod
+    def process_element(self, input: Input) -> AsyncIterator[Output]:
+        pass
+
+    async def _process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
+        async for elem in input:
+            async for output in self.process_element(elem):
+                yield output
+
+    def with_cache(self, filename: str) -> "Agent[Input, Output]":
+        return CacheStatelessAgent(self, filename)
+
+
+class MapAgent(StatelessAgent[Input, Output], Generic[Input, Output]):
     """
     An agent that returns a single output for each input.
     """
 
-    async def _process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
-        async for elem in input:
-            yield await self.handle(elem)
+    def __init__(self, name: Optional[str] = None):
+        super().__init__(name)
+
+    async def process_element(self, input: Input) -> AsyncIterator[Output]:
+        yield await self.handle(input)
 
     @abstractmethod
     async def handle(self, input: Input) -> Output:
         pass
+
+    def with_cache(self, filename: str) -> "MapAgent[Input, Output]":
+        return CacheMapAgent(self, filename)
 
 
 class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
@@ -180,10 +221,20 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
         to: Callable[[Input], T],
         frm: Callable[[Input, U], Output],
     ):
-        super().__init__(f"enrich ({agent.name})")
+        super().__init__(f"Enrich")
         self.agent = agent
         self.to = to
         self.frm = frm
+
+    def nodes(self) -> Dict[int, str]:
+        return {**self.agent.nodes(), self.id: self.name}
+
+    def edges(self) -> List[Tuple[int, int]]:
+        return [
+            (self.id, self.agent.id),
+            (self.agent.id, self.id),
+            *self.agent.edges(),
+        ]
 
     async def _process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
         queue: asyncio.Queue[Input] = asyncio.Queue()
@@ -198,13 +249,25 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
             yield self.frm(orig_input, elem)
 
 
-class OpenAIAgent(Agent[Input, Output]):
+class OpenAIAgent:
     def __init__(self, model: str, embedding_model: Optional[str] = None):
         self.model = get_model(model)
         self.client = get_async_client()
         self.embedding_func: Optional[OpenAIEmbeddings] = (
             get_embedding_func(embedding_model) if embedding_model else None
         )
+
+
+class OpenAIMessagesAgent(
+    OpenAIAgent,
+    MapAgent[list[ChatCompletionMessageParam], str],
+):
+    def __init__(self, model: str):
+        super().__init__(model)
+        MapAgent.__init__(self, name="OpenAIMessagesAgent")
+
+    async def handle(self, input: list[ChatCompletionMessageParam]) -> str:
+        return await get_messages_response_async(self.client, self.model, input)
 
 
 async def merge_iterators_in_order(
@@ -263,10 +326,20 @@ class _AllDone:
 
 class ParallelAgent(Agent[T, U]):
     def __init__(self, max_parallelism: int, agent: "Agent[T, U]"):
-        super().__init__(agent.name + "x" + str(max_parallelism))
+        super().__init__(f"Parallelize x{max_parallelism}")
         self.max_parallelism = max_parallelism
         self.agent = agent
         self.semaphore = asyncio.Semaphore(max_parallelism)
+
+    def edges(self) -> List[Tuple[int, int]]:
+        return [
+            (self.id, self.agent.id),
+            (self.agent.id, self.id),
+            *self.agent.edges(),
+        ]
+
+    def nodes(self) -> Dict[int, str]:
+        return {**self.agent.nodes(), self.id: self.name}
 
     async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[U]:
         queue: asyncio.Queue[U] = asyncio.Queue()
@@ -378,3 +451,106 @@ class ChunkingAgent(Agent[T, List[T]]):
                 chunk = []
         if chunk:
             yield chunk  # Yield any remaining items as the last chunk
+
+
+class CacheAgentBase(Generic[Input, Output]):
+    """
+    Base class that handles caching logic for agents.
+    """
+
+    def __init__(self, filename: str):
+        self.filename = filename
+        self.cache: Dict[str, Any] = {}
+        self._load_cache()
+
+    def _load_cache(self):
+        if os.path.exists(self.filename):
+            with open(self.filename, "r") as f:
+                self.cache = json.load(f)
+        else:
+            self.cache = {}
+
+    def _save_cache(self):
+        # Write cache to a temporary file first
+        dir_name = os.path.dirname(self.filename) or "."
+        with tempfile.NamedTemporaryFile(
+            "w", dir=dir_name, delete=False, encoding="utf-8"
+        ) as tmp_file:
+            json.dump(self.cache, tmp_file)
+            temp_name = tmp_file.name
+        # Atomically replace the original file with the new one
+        os.replace(temp_name, self.filename)
+
+    def get_cached_output(self, input: Input) -> Optional[Any]:
+        input_key = json.dumps(input, default=str)
+        return self.cache.get(input_key)
+
+    def set_cached_output(self, input: Input, output: Any):
+        input_key = json.dumps(input, default=str)
+        self.cache[input_key] = output
+        self._save_cache()
+
+
+class CacheStatelessAgent(StatelessAgent[Input, Output]):
+    """
+    Caching agent for StatelessAgents.
+    """
+
+    def __init__(self, agent: StatelessAgent[Input, Output], filename: str):
+        super().__init__(name=f"Cache")
+        self.agent = agent
+        self.cache_base = CacheAgentBase[Input, Any](filename)
+
+    def nodes(self) -> Dict[int, str]:
+        return {**self.agent.nodes(), self.id: self.name}
+
+    def edges(self) -> List[Tuple[int, int]]:
+        return [
+            (self.id, self.agent.id),
+            (self.agent.id, self.id),
+            *self.agent.edges(),
+        ]
+
+    async def process_element(self, input: Input) -> AsyncIterator[Output]:
+        cached_output = self.cache_base.get_cached_output(input)
+        if cached_output is not None:
+            # Yield cached outputs
+            for output in cached_output:
+                yield output
+        else:
+            outputs = []
+            # Process and cache outputs
+            async for output in self.agent.process_element(input):
+                outputs.append(output)
+                yield output
+            self.cache_base.set_cached_output(input, outputs)
+
+
+class CacheMapAgent(MapAgent[Input, Output]):
+    """
+    Caching agent for MapAgents.
+    """
+
+    def __init__(self, agent: MapAgent[Input, Output], filename: str):
+        super().__init__(name=f"Cache")
+        self.agent = agent
+        self.cache_base = CacheAgentBase[Input, Output](filename)
+
+    def edges(self) -> List[Tuple[int, int]]:
+        return [
+            (self.id, self.agent.id),
+            (self.agent.id, self.id),
+            *self.agent.edges(),
+        ]
+
+    def nodes(self) -> Dict[int, str]:
+        return {**self.agent.nodes(), self.id: self.name}
+
+    async def handle(self, input: Input) -> Output:
+        cached_output = self.cache_base.get_cached_output(input)
+        if cached_output is not None:
+            return cached_output
+        else:
+            output = await self.agent.handle(input)
+            self.cache_base.set_cached_output(input, output)
+            return output

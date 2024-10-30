@@ -15,6 +15,10 @@ from helpers import get_json_response_async
 from agent import EnrichAgent, UnchunkingAgent
 from helpers import get_messages_response_async
 from agent import TakeOnly
+from agent import StatelessAgent
+from agent import MapAgent
+from agent import ParallelAgent
+from agent import OpenAIMessagesAgent
 from question_answer import QuestionWithChunk
 from pipeline_types import FinetuneEntry
 from pipeline_types import EnrichedPdfChunk
@@ -33,6 +37,7 @@ from typing import (
     AsyncGenerator,
     AsyncIterator,
     Coroutine,
+    Dict,
     Generator,
     List,
     TypeVar,
@@ -80,37 +85,39 @@ class RefinedQuestionsModel(BaseModel):
     questions: List[str]
 
 
-class RefineQuestionsAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
+class RefineQuestionsAgent(
+    OpenAIAgent,
+    StatelessAgent[FinetuneEntry, FinetuneEntry],
+):
     def __init__(self):
         super().__init__(DEFAULT_REFINE_QUESTIONS_MODEL)
-        self.name = "Refine Questions Agent"
+        StatelessAgent.__init__(self, name="Refine Questions Agent")
 
-    async def _process(
-        self, inputs: AsyncIterator[FinetuneEntry]
+    async def process_element(
+        self, input: FinetuneEntry
     ) -> AsyncIterator[FinetuneEntry]:
-        async for input in inputs:
-            print(f"Generating refined question for Question: {input['question']}")
-            resp = await get_json_response_async(
-                client=self.client,
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": REFINED_QUESTIONS_PROMPT.format(
-                            question=input["question"],
-                            answer=input["answer"],
-                        ),
-                    },
-                ],
-                response_format=RefinedQuestionsModel,
-            )
-            yield input  # Also return the original question
-            for question in resp.questions:
-                print("Refined Question: ", question)
-                yield {
-                    **input,
-                    "question": question,
-                }
+        print(f"Generating refined question for Question: {input['question']}")
+        resp = await get_json_response_async(
+            client=self.client,
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": REFINED_QUESTIONS_PROMPT.format(
+                        question=input["question"],
+                        answer=input["answer"],
+                    ),
+                },
+            ],
+            response_format=RefinedQuestionsModel,
+        )
+        yield input  # Also return the original question
+        for question in resp.questions:
+            print("Refined Question: ", question)
+            yield {
+                **input,
+                "question": question,
+            }
 
 
 class EmbedChunksAgent(Agent[List[EnrichedPdfChunk], List[EnrichedPdfChunk]]):
@@ -162,24 +169,23 @@ async def slurp_iterator(generator: AsyncIterator[T]) -> List[T]:
     return [item async for item in generator]
 
 
-class ChunkTextAgent(Agent[EnrichedPdfFile, EnrichedPdfChunk]):
+class ChunkTextAgent(StatelessAgent[EnrichedPdfFile, EnrichedPdfChunk]):
     def __init__(self, chunk_size: int, chunk_overlap: int):
         super().__init__(f"Chunk Text Agent ({chunk_size})")
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    async def _process(
-        self, inputs: AsyncIterator[EnrichedPdfFile]
+    async def process_element(
+        self, input: EnrichedPdfFile
     ) -> AsyncIterator[EnrichedPdfChunk]:
-        async for input in inputs:
-            chunks = split_text(input["text"], self.chunk_size, self.chunk_overlap)
-            for index, chunk in enumerate(chunks):
-                yield EnrichedPdfChunk(
-                    filename=input["filename"],
-                    source=input["source"],
-                    source_type=input["source_type"],
-                    chunk=chunk,
-                )
+        chunks = split_text(input["text"], self.chunk_size, self.chunk_overlap)
+        for chunk in chunks:
+            yield EnrichedPdfChunk(
+                filename=input["filename"],
+                source=input["source"],
+                source_type=input["source_type"],
+                chunk=chunk,
+            )
 
 
 # class RefineQuestionAgent(Agent[FinetuneEntry, FinetuneEntry]):
@@ -205,16 +211,13 @@ def extract_title(pdf_path) -> str:
         return os.path.splitext(os.path.basename(pdf_path))[0]
 
 
-class EnrichPdfFileAgent(Agent[str, EnrichedPdfFile]):
-    async def _process(
-        self, inputs: AsyncIterator[str]
-    ) -> AsyncIterator[EnrichedPdfFile]:
-        async for filename in inputs:
-            source = extract_title(filename)
-            text = read_pdf(filename)
-            yield EnrichedPdfFile(
-                filename=filename, source=source, source_type="paper", text=text
-            )
+class EnrichPdfFileAgent(MapAgent[str, EnrichedPdfFile]):
+    async def handle(self, filename: str) -> EnrichedPdfFile:
+        source = extract_title(filename)
+        text = read_pdf(filename)
+        return EnrichedPdfFile(
+            filename=filename, source=source, source_type="paper", text=text
+        )
 
 
 async def generate_finetune_entries_for_files_in_directory(
@@ -252,14 +255,21 @@ async def generate_finetune_entries_for_files_in_directory(
 
     pipeline = (
         EnrichPdfFileAgent()
-        .and_then(ChunkTextAgent(chunk_size, chunk_overlap))
+        .with_cache(f"enrich_pdf_file_cache.json")
+        .and_then(
+            ChunkTextAgent(chunk_size, chunk_overlap).with_cache(
+                f"chunk_text_cache-{chunk_size}-{chunk_overlap}.json"
+            )
+        )
         .chunk(10)  # We embed 10 text chunks at a time
         .and_then(EmbedChunksAgent(embeddings_func, vector_store))
         .and_then(UnchunkingAgent())  # Undo the previous chunking
         .fan_out(
             10,
             EnrichAgent(
-                EntityExtractionAgent(entity_batch_size),
+                EntityExtractionAgent(entity_batch_size).with_cache(
+                    f"entity_extraction_cache.json"
+                ),
                 lambda e: e["chunk"],
                 lambda e, entities: EnrichedPdfChunkWithEntities(
                     filename=e["filename"],
@@ -270,12 +280,17 @@ async def generate_finetune_entries_for_files_in_directory(
                 ),
             ),
         )
-        .fan_out(10, QuestionGenerator(model, question_batch_size))
+        .fan_out(
+            10,
+            QuestionGenerator(model, question_batch_size).with_cache(
+                f"question_generator_cache.json"
+            ),
+        )
         .and_then(RemoveDuplicateQuestionsAgent())
         .fan_out(
             10,
             EnrichAgent(
-                GetAnswerAgent(),
+                GetAnswerAgent().with_cache(f"get_answer_cache.json"),
                 lambda e: QuestionWithChunk(question=e["question"], chunk=e["chunk"]),
                 lambda e, answer: FinetuneEntry(
                     filename=e["filename"],
@@ -287,7 +302,7 @@ async def generate_finetune_entries_for_files_in_directory(
                 ),
             ),
         )
-        .fan_out(10, RefineQuestionsAgent())
+        .fan_out(10, RefineQuestionsAgent().with_cache("refine_question_cache.json"))
         .and_then(RemoveSimilarQuestionsAgent(embeddings_func, 0.9))
         .fan_out(10, GetRAGAnswerAgent(vector_store))
     )
@@ -325,16 +340,25 @@ REFINED_RAG_ANSWER_PROMPT = """
 """
 
 
-class GetRAGAnswerAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
+class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
 
     def __init__(self, vector_store: Chroma, k: int = 3):
-        super().__init__(
+        super().__init__("Get RAG Answer Agent")
+        self.messages_agent = OpenAIMessagesAgent(
             model=DEFAULT_REFINE_QUESTIONS_MODEL,
-            embedding_model="text-embedding-nomic-embed-text-v1.5@f32",
-        )
-        self.name = "Get RAG Answer Agent"
+        ).with_cache("get_rag_answer_cache.json")
         self.vector_store = vector_store
         self.k = k
+
+    def edges(self) -> List[Tuple[int, int]]:
+        return [
+            *(self.messages_agent.edges()),
+            (self.id, self.messages_agent.id),
+            (self.messages_agent.id, self.id),
+        ]
+
+    def nodes(self) -> Dict[int, str]:
+        return {**self.messages_agent.nodes(), self.id: self.name}
 
     async def _process(
         self, inputs: AsyncIterator[FinetuneEntry]
@@ -349,10 +373,8 @@ class GetRAGAnswerAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
             )
             docs_str = "\n".join([r.page_content for r in docs])
             print(f"Generating answer for Question: {input['question']}")
-            resp = await get_messages_response_async(
-                client=self.client,
-                model=self.model,
-                messages=[
+            resp = await self.messages_agent.handle(
+                [
                     {
                         "role": "system",
                         "content": REFINED_RAG_ANSWER_PROMPT.format(
@@ -367,10 +389,19 @@ class GetRAGAnswerAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
             yield {**input, "answer": resp}
 
 
+class EmbeddingsAgent(MapAgent[str, list[float]]):
+    def __init__(self, embeddings_func: OpenAIEmbeddings):
+        super().__init__("Embeddings Agent")
+        self.embeddings_func = embeddings_func
+
+    async def handle(self, input: str) -> list[float]:
+        return await self.embeddings_func.aembed_query(input)
+
+
 class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
     def __init__(self, embeddings_func: OpenAIEmbeddings, threshold: float):
         super().__init__("Remove Similar Questions Agent")
-        self.embeddings_func = embeddings_func
+        self.embed_agent = EmbeddingsAgent(embeddings_func)
         self.threshold = threshold
 
     async def _process(
@@ -378,7 +409,7 @@ class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
     ) -> AsyncIterator[FinetuneEntry]:
         input_list = await slurp_iterator(inputs)
         embeddings = [
-            self.embeddings_func.embed_query(input["question"]) for input in input_list
+            await self.embed_agent.handle(input["question"]) for input in input_list
         ]
         similarity_matrix = cosine_similarity(embeddings)
 

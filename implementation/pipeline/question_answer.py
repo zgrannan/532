@@ -13,6 +13,7 @@ from helpers import (
 )
 from agent import OpenAIAgent
 from agent import MapAgent
+from agent import StatelessAgent
 from pipeline_types import FinetuneEntry
 from pipeline_types import (
     EnrichedPdfChunkWithEntities,
@@ -92,29 +93,29 @@ from typing import TypedDict
 
 
 class QuestionGenerator(
-    OpenAIAgent[EnrichedPdfChunkWithEntities, EnrichedPdfChunkWithQuestion]
+    OpenAIAgent,
+    StatelessAgent[EnrichedPdfChunkWithEntities, EnrichedPdfChunkWithQuestion],
 ):
     def __init__(self, model: str, batch_size: int = 10):
         super().__init__(model)
-        self.name = "Question Generator"
+        StatelessAgent.__init__(self, name="Question Generator")
         self.batch_size = batch_size
 
-    async def _process(
-        self, inputs: AsyncIterator[EnrichedPdfChunkWithEntities]
+    async def process_element(
+        self, input: EnrichedPdfChunkWithEntities
     ) -> AsyncIterator[EnrichedPdfChunkWithQuestion]:
-        async for input in inputs:
-            for i in range(0, len(input["entities"]), self.batch_size):
-                entities = input["entities"][i : i + self.batch_size]
-                for question in await self._generate_questions(
-                    input["chunk"], input["source"], input["source_type"], entities
-                ):
-                    yield EnrichedPdfChunkWithQuestion(
-                        filename=input["filename"],
-                        source=input["source"],
-                        source_type=input["source_type"],
-                        chunk=input["chunk"],
-                        question=question,
-                    )
+        for i in range(0, len(input["entities"]), self.batch_size):
+            entities = input["entities"][i : i + self.batch_size]
+            for question in await self._generate_questions(
+                input["chunk"], input["source"], input["source_type"], entities
+            ):
+                yield EnrichedPdfChunkWithQuestion(
+                    filename=input["filename"],
+                    source=input["source"],
+                    source_type=input["source_type"],
+                    chunk=input["chunk"],
+                    question=question,
+                )
 
     async def _generate_questions(
         self, chunk: str, source: str, source_type: str, entities: List[str]
@@ -147,15 +148,16 @@ class QAPair(TypedDict):
     chunk: str
     chunk_index: int
 
+
 class QuestionWithChunk(TypedDict):
     question: str
     chunk: str
 
 
-class GetAnswerAgent(OpenAIAgent[QuestionWithChunk, str], MapAgent[QuestionWithChunk, str]):
+class GetAnswerAgent(OpenAIAgent, MapAgent[QuestionWithChunk, str]):
     def __init__(self):
         super().__init__(DEFAULT_QUESTION_ANSWER_MODEL)
-        self.name = "Get Answer Agent"
+        MapAgent.__init__(self, name="Get Answer Agent")
 
     async def handle(self, input: QuestionWithChunk) -> str:
         print(f"Generating answer for Question: {input['question']}")
