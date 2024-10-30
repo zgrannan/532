@@ -31,29 +31,10 @@ class EnrichedPdfChunkWithQuestion(TypedDict):
     question: str
 
 
-class EnrichedPdfChunkWithQAPair(TypedDict):
-    filename: str
-    source: str
-    source_type: str
-    chunk: str
-    question: str
-    answer: str
-
-
-class EnrichedPdfChunkWithRefinedQAPair(TypedDict):
-    filename: str
-    source: str
-    source_type: str
-    chunk: str
-    question: str
-    answer: str
-    original_question: str
-
 class FinetuneEntry(TypedDict):
+    filename: str
+    source: str
+    source_type: str
+    chunk: str
     question: str
     answer: str
-    source: str
-    chunk: str
-    chunk_index: int
-    chunk_size: int
-    chunk_overlap: int

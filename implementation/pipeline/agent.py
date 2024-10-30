@@ -262,6 +262,18 @@ class FuncAgent(Agent[T, V], Generic[T, U, V]):
             yield self.func(elem)
 
 
+class TakeOnly(Agent[T, T]):
+    def __init__(self, n: int):
+        self.n = n
+
+    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[T]:
+        i = 0
+        async for elem in input:
+            yield elem
+            i += 1
+            if i >= self.n:
+                break
+
 class ComposedAgent(Agent[T, V], Generic[T, U, V]):
     def __init__(self, agent1: Pipeline[T, U], agent2: Pipeline[U, V]):
         self.agent1 = agent1
@@ -291,6 +303,12 @@ class ZipWithAgent(Agent[T, Tuple[U, V]], Generic[T, U, V]):
             async for elem2 in self.agent2.process(once(elem)):
                 yield (elem, elem2)
 
+
+class UnchunkingAgent(Agent[List[T], T]):
+    async def _process(self, input: AsyncIterator[List[T]]) -> AsyncIterator[T]:
+        async for elem in input:
+            for item in elem:
+                yield item
 
 class ChunkingAgent(Agent[T, List[U]]):
     def __init__(self, agent: Pipeline[T, U], chunk_size: int):

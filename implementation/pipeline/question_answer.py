@@ -16,7 +16,6 @@ from pipeline_types import FinetuneEntry
 from pipeline_types import (
     EnrichedPdfChunkWithEntities,
     EnrichedPdfChunkWithQuestion,
-    EnrichedPdfChunkWithQAPair,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -153,7 +152,7 @@ class GetAnswerAgent(OpenAIAgent[EnrichedPdfChunkWithQuestion, FinetuneEntry]):
 
     async def _process(
         self, inputs: AsyncIterator[EnrichedPdfChunkWithQuestion]
-    ) -> AsyncIterator[EnrichedPdfChunkWithQAPair]:
+    ) -> AsyncIterator[FinetuneEntry]:
         async for input in inputs:
             print(f"Generating answer for Question: {input['question']}")
             answer = await get_messages_response_async(

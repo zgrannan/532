@@ -1,5 +1,9 @@
+from uuid import uuid4
 import PyPDF2
 import asyncio
+from chromadb import Documents
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
 from openai import OpenAI, AsyncOpenAI
 import os
 import time
@@ -8,20 +12,21 @@ from agent import Agent, OpenAIAgent, ComposedAgent
 from entity_extraction import EntityExtractionAgent
 from helpers import once
 from helpers import get_json_response_async
-from agent import EnrichAgent
+from agent import EnrichAgent, UnchunkingAgent
+from helpers import get_messages_response_async
+from agent import TakeOnly
 from pipeline_types import FinetuneEntry
 from pipeline_types import EnrichedPdfChunk
 from pipeline_types import EnrichedPdfFile
 from pipeline_types import (
     EnrichedPdfChunkWithEntities,
-    EnrichedPdfChunkWithQAPair,
     EnrichedPdfChunkWithQuestion,
-    EnrichedPdfChunkWithRefinedQAPair,
 )
 from question_answer import QAPair
 from question_answer import GetAnswerAgent
 from question_answer import QuestionGenerator
 from utils.pdf import read_pdf
+from langchain_core.documents import Document
 from typing import (
     Any,
     AsyncGenerator,
@@ -46,6 +51,8 @@ import pandas as pd
 from dotenv import find_dotenv, load_dotenv
 import argparse
 from datetime import datetime
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 load_dotenv(find_dotenv())
 
@@ -72,15 +79,13 @@ class RefinedQuestionsModel(BaseModel):
     questions: List[str]
 
 
-class RefineQuestionsAgent(
-    OpenAIAgent[EnrichedPdfChunkWithQAPair, EnrichedPdfChunkWithRefinedQAPair]
-):
+class RefineQuestionsAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
     def __init__(self):
         super().__init__(DEFAULT_REFINE_QUESTIONS_MODEL)
 
     async def _process(
-        self, inputs: AsyncIterator[EnrichedPdfChunkWithQAPair]
-    ) -> AsyncIterator[EnrichedPdfChunkWithQAPair]:
+        self, inputs: AsyncIterator[FinetuneEntry]
+    ) -> AsyncIterator[FinetuneEntry]:
         async for input in inputs:
             print(f"Generating refined question for Question: {input['question']}")
             resp = await get_json_response_async(
@@ -97,13 +102,39 @@ class RefineQuestionsAgent(
                 ],
                 response_format=RefinedQuestionsModel,
             )
+            yield input  # Also return the original question
             for question in resp.questions:
                 print("Refined Question: ", question)
                 yield {
                     **input,
                     "question": question,
-                    "original_question": input["question"],
                 }
+
+
+class EmbedChunksAgent(Agent[List[EnrichedPdfChunk], List[EnrichedPdfChunk]]):
+    def __init__(self, embeddings_func: OpenAIEmbeddings, vector_store: Chroma):
+        self.embeddings_func = embeddings_func
+        self.vector_store = vector_store
+
+    async def _process(
+        self, inputs: AsyncIterator[List[EnrichedPdfChunk]]
+    ) -> AsyncIterator[List[EnrichedPdfChunk]]:
+        async for input_list in inputs:
+            docs = [
+                Document(
+                    page_content=input["chunk"],
+                    metadata={
+                        "filename": os.path.splitext(
+                            os.path.basename(input["filename"])
+                        )[0]
+                    },
+                )
+                for input in input_list
+            ]
+            uuids = [str(uuid4()) for _ in input_list]
+
+            await self.vector_store.aadd_documents(docs, ids=uuids)
+            yield input_list
 
 
 class RemoveDuplicateQuestionsAgent(
@@ -194,15 +225,33 @@ async def generate_finetune_entries_for_files_in_directory(
     for file in pdf_files:
         print(f"Processing file: {file}")
 
+    RUN_NAME = "20241028165628"
+    EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"  # on LM Studio
     chunk_size = 5000
     chunk_overlap = 100
     entity_batch_size = 10
     question_batch_size = 10
     model = "meta-llama-3.1-8b-instruct-q6_k"
 
+    embeddings_func = OpenAIEmbeddings(
+        model=EMBEDDING_MODEL,
+        base_url="http://localhost:1234/v1",
+        api_key="test",
+        check_embedding_ctx_length=False,  # https://github.com/langchain-ai/langchain/issues/21318
+    )
+
+    vector_store = Chroma(
+        collection_name=RUN_NAME,  # Config name,
+        embedding_function=embeddings_func,
+        persist_directory="./chroma_langchain_db",
+    )
+
     pipeline = (
         EnrichPdfFileAgent()
         .and_then(ChunkTextAgent(chunk_size, chunk_overlap))
+        .chunk(10)
+        .and_then(EmbedChunksAgent(embeddings_func, vector_store))
+        .and_then(UnchunkingAgent())
         .fan_out(
             10,
             EnrichAgent(
@@ -216,9 +265,118 @@ async def generate_finetune_entries_for_files_in_directory(
         .fan_out(10, QuestionGenerator(model, question_batch_size))
         .and_then(RemoveDuplicateQuestionsAgent())
         .fan_out(10, GetAnswerAgent())
+        .fan_out(10, RefineQuestionsAgent())
+        .and_then(RemoveSimilarQuestionsAgent(embeddings_func, 0.9))
+        .fan_out(10, GetRAGAnswerAgent(vector_store))
     )
 
     return await slurp_iterator(pipeline.process_list(pdf_files))
+
+
+REFINED_RAG_ANSWER_PROMPT = """
+    You are tasked with answering questions based on a provided text.
+    You are provided with a question and an initial answer.
+    You are also provided with some supporting documentation to help create a new response
+
+    Your goal is to generate high-quality, detailed answers by following these instructions:
+    If the answer is not found in the text, respond with "NO ANSWER FOUND"
+
+    # Instructions:
+    1. Reference the Text: Answer directly using relevant details from the text. Avoid introducing unsupported claims.
+    2. Comprehensive Response: Address all parts of the question thoroughly, covering multiple aspects if needed.
+    3. Detail-Oriented: Highlight key elements like techniques, processes, models, or challenges, expanding on them for clarity.
+    4. Organized Structure: Use clear paragraphs or points for complex answers.
+    5. Clarity and Examples: Ensure the answer is precise and easy to follow. Include examples or quotes from the text when applicable.
+    6. Include Sources: Clearly reference the source information at the end of the answer.
+    7. Include only the answer in your response
+
+    Question:
+    {question}
+
+    Initial Answer:
+    {answer}
+
+    Supporting Documentation:
+    {docs}
+
+"""
+
+
+class GetRAGAnswerAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
+
+    def __init__(self, vector_store: Chroma, k: int = 3):
+        super().__init__(
+            model=DEFAULT_REFINE_QUESTIONS_MODEL,
+            embedding_model="text-embedding-nomic-embed-text-v1.5@f32",
+        )
+        self.vector_store = vector_store
+        self.k = k
+
+    async def _process(
+        self, inputs: AsyncIterator[FinetuneEntry]
+    ) -> AsyncIterator[FinetuneEntry]:
+        # Test rag
+
+        # Get docs from vector store
+        async for input in inputs:
+            print("similarity search")
+            docs = await self.vector_store.asimilarity_search(
+                query=input["question"], k=self.k, filter={"filename": input["source"]}
+            )
+            docs_str = "\n".join([r.page_content for r in docs])
+            print(f"Generating answer for Question: {input['question']}")
+            resp = await get_messages_response_async(
+                client=self.client,
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": REFINED_RAG_ANSWER_PROMPT.format(
+                            question=input["question"],
+                            answer=input["answer"],
+                            docs=docs_str,
+                        ),
+                    },
+                ],
+            )
+            yield input # Also return original entry
+            yield {**input, "answer": resp}
+
+
+class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
+    def __init__(self, embeddings_func: OpenAIEmbeddings, threshold: float):
+        self.embeddings_func = embeddings_func
+        self.threshold = threshold
+
+    async def _process(
+        self, inputs: AsyncIterator[FinetuneEntry]
+    ) -> AsyncIterator[FinetuneEntry]:
+        input_list = await slurp_iterator(inputs)
+        embeddings = [
+            self.embeddings_func.embed_query(input["question"]) for input in input_list
+        ]
+        similarity_matrix = cosine_similarity(embeddings)
+
+        # Set diagonal to 0 to avoid self-matches
+        np.fill_diagonal(similarity_matrix, 0)
+
+        # Find pairs above threshold
+        similar_pairs = []
+        for i in range(len(similarity_matrix)):
+            for j in range(i + 1, len(similarity_matrix)):
+                if similarity_matrix[i][j] > self.threshold:
+                    similar_pairs.append((i, j))
+
+        indices_to_remove = set()
+        # For each similar pair, remove the second question
+        for pair in similar_pairs:
+            indices_to_remove.add(pair[1])
+
+        filtered_data = [
+            item for i, item in enumerate(input_list) if i not in indices_to_remove
+        ]
+        for item in filtered_data:
+            yield item
 
 
 async def main():
