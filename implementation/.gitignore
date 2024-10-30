@@ -7,3 +7,5 @@
 finetuning/*
 !finetuning/*.ipynb
 env/*
+chroma_langchain_db
+.vscode

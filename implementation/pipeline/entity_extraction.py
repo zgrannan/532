@@ -61,6 +61,7 @@ ENTITY_EXTRACTION_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
 class EntityExtractionAgent(OpenAIAgent[str, List[str]], MapAgent[str, List[str]]):
     def __init__(self, max_entities: int):
         super().__init__(ENTITY_EXTRACTION_MODEL)
+        self.name = "Entity Extraction Agent"
         self.max_entities = max_entities
 
     async def handle(self, input: str) -> List[str]:

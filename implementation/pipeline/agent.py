@@ -1,6 +1,8 @@
+import itertools
 from typing import (
     AsyncIterator,
     Callable,
+    Dict,
     Iterator,
     List,
     Tuple,
@@ -36,6 +38,22 @@ class Pipeline(ABC, Generic[Input, Output]):
     """
 
     @abstractmethod
+    def edges(self) -> List[Tuple[int, int]]:
+        pass
+
+    @abstractmethod
+    def nodes(self) -> Dict[int, str]:
+        pass
+
+    @abstractmethod
+    def input_id(self) -> int:
+        pass
+
+    @abstractmethod
+    def output_id(self) -> int:
+        pass
+
+    @abstractmethod
     async def _process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
         yield cast(
             Output, None
@@ -47,30 +65,25 @@ class Pipeline(ABC, Generic[Input, Output]):
 
     def fan_out(
         self, max_parallelism: int, agent: "Agent[Output, V]"
-    ) -> "Agent[Input, V]":
+    ) -> "Pipeline[Input, V]":
         return self.and_then(ParallelAgent(max_parallelism, agent))
 
     def map(self, func: Callable[[Output], V]) -> "FuncAgent[Input, Output, V]":
         return FuncAgent(self, func)
 
-    def and_then(
-        self, next: "Pipeline[Output, V]"
-    ) -> "ComposedAgent[Input, Output, V]":
-        return ComposedAgent(self, next)
+    def and_then(self, next: "Pipeline[Output, V]") -> "Compose[Input, Output, V]":
+        return Compose(self, next)
 
-    def chunk(self, chunk_size: int) -> "ChunkingAgent[Input, Output]":
-        return ChunkingAgent(self, chunk_size)
-
-    def zip_with(self, next_agent):
-        return ZipWithAgent(self, next_agent)
+    def chunk(self, chunk_size: int) -> "Pipeline[Input, List[Output]]":
+        return self.and_then(ChunkingAgent(chunk_size))
 
     def enrich_with(
         self,
-        pipeline: "Pipeline[TT, UU]",
+        agent: "MapAgent[TT, UU]",
         to: Callable[[Output], TT],
         frm: Callable[[Output, UU], V],
     ) -> "Pipeline[Input, V]":
-        return self.and_then(EnrichAgent(pipeline, to, frm))
+        return self.and_then(EnrichAgent(agent, to, frm))
 
     def process_once(self, input: Input):
         return self.process(once(input))
@@ -81,6 +94,18 @@ class Pipeline(ABC, Generic[Input, Output]):
                 yield item
 
         return self.process(async_generator(input))
+
+    def to_dot(self) -> str:
+        # Generate the DOT string
+        dot_lines = ["digraph G {"]
+        for node_id, label in self.nodes().items():
+            # Escape quotes in labels
+            label = label.replace('"', '\\"')
+            dot_lines.append(f'    node{node_id} [label="{label}"];')
+        for from_id, to_id in self.edges():
+            dot_lines.append(f"    node{from_id} -> node{to_id};")
+        dot_lines.append("}")
+        return "\n".join(dot_lines)
 
 
 class Agent(Pipeline[Input, Output], Generic[Input, Output]):
@@ -115,8 +140,30 @@ class Agent(Pipeline[Input, Output], Generic[Input, Output]):
     to use depends on the use-case.
     """
 
+    id_counter = itertools.count()
+
+    def __init__(self, name: Optional[str] = None):
+        self.id = next(Agent.id_counter)
+        self.name = name if name else f"{self.__class__.__name__}-{self.id}"
+
+    def input_id(self) -> int:
+        return self.id
+
+    def output_id(self) -> int:
+        return self.id
+
+    def edges(self) -> List[Tuple[int, int]]:
+        return []
+
+    def nodes(self) -> Dict[int, str]:
+        return {self.id: self.name}
+
 
 class MapAgent(Agent[Input, Output], Generic[Input, Output]):
+    """
+    An agent that returns a single output for each input.
+    """
+
     async def _process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
         async for elem in input:
             yield await self.handle(elem)
@@ -133,6 +180,7 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
         to: Callable[[Input], T],
         frm: Callable[[Input, U], Output],
     ):
+        super().__init__(f"enrich ({agent.name})")
         self.agent = agent
         self.to = to
         self.frm = frm
@@ -212,8 +260,10 @@ class _AllDone:
 
     pass
 
+
 class ParallelAgent(Agent[T, U]):
     def __init__(self, max_parallelism: int, agent: "Agent[T, U]"):
+        super().__init__(agent.name + "x" + str(max_parallelism))
         self.max_parallelism = max_parallelism
         self.agent = agent
         self.semaphore = asyncio.Semaphore(max_parallelism)
@@ -268,59 +318,61 @@ class TakeOnly(Agent[T, T]):
 
     async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[T]:
         i = 0
+        if self.n == 0:
+            return
         async for elem in input:
             yield elem
             i += 1
             if i >= self.n:
                 break
 
-class ComposedAgent(Agent[T, V], Generic[T, U, V]):
+
+class Compose(Pipeline[T, V], Generic[T, U, V]):
     def __init__(self, agent1: Pipeline[T, U], agent2: Pipeline[U, V]):
-        self.agent1 = agent1
-        self.agent2 = agent2
+        self.left = agent1
+        self.right = agent2
+
+    def input_id(self) -> int:
+        return self.left.input_id()
+
+    def output_id(self) -> int:
+        return self.right.output_id()
+
+    def edges(self) -> List[Tuple[int, int]]:
+        return (
+            self.left.edges()
+            + self.right.edges()
+            + [(self.left.output_id(), self.right.input_id())]
+        )
+
+    def nodes(self) -> Dict[int, str]:
+        return {**self.left.nodes(), **self.right.nodes()}
 
     async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[V]:
-        async for output in self.agent2.process(self.agent1.process(input)):
+        async for output in self.right.process(self.left.process(input)):
             yield output
 
 
-class Duplicate(Agent[T, Tuple[U, U]], Generic[T, U]):
-    def __init__(self, agent: Agent[T, U]):
-        self.agent = agent
-
-    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[Tuple[U, U]]:
-        async for elem in self.agent.process(input):
-            yield (elem, elem)
-
-
-class ZipWithAgent(Agent[T, Tuple[U, V]], Generic[T, U, V]):
-    def __init__(self, agent1: Agent[T, U], agent2: Agent[U, V]):
-        self.agent1 = agent1
-        self.agent2 = agent2
-
-    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[Tuple[U, V]]:
-        async for elem in self.agent1.process(input):
-            async for elem2 in self.agent2.process(once(elem)):
-                yield (elem, elem2)
-
-
 class UnchunkingAgent(Agent[List[T], T]):
+    def __init__(self):
+        super().__init__("unchunk")
+
     async def _process(self, input: AsyncIterator[List[T]]) -> AsyncIterator[T]:
         async for elem in input:
             for item in elem:
                 yield item
 
-class ChunkingAgent(Agent[T, List[U]]):
-    def __init__(self, agent: Pipeline[T, U], chunk_size: int):
-        self.agent = agent
+
+class ChunkingAgent(Agent[T, List[T]]):
+    def __init__(self, chunk_size: int):
+        super().__init__(f"chunk ({chunk_size})")
         self.chunk_size = chunk_size
 
-    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[List[U]]:
+    async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[List[T]]:
         # Get the output generator from the underlying agent
-        output_generator = self.agent.process(input)
-        chunk: List[U] = []
-        async for output in output_generator:
-            chunk.append(output)
+        chunk: List[T] = []
+        async for elem in input:
+            chunk.append(elem)
             if len(chunk) == self.chunk_size:
                 yield chunk
                 chunk = []

@@ -8,13 +8,14 @@ from openai import OpenAI, AsyncOpenAI
 import os
 import time
 from helpers import get_default_client
-from agent import Agent, OpenAIAgent, ComposedAgent
+from agent import Agent, OpenAIAgent, Compose
 from entity_extraction import EntityExtractionAgent
 from helpers import once
 from helpers import get_json_response_async
 from agent import EnrichAgent, UnchunkingAgent
 from helpers import get_messages_response_async
 from agent import TakeOnly
+from question_answer import QuestionWithChunk
 from pipeline_types import FinetuneEntry
 from pipeline_types import EnrichedPdfChunk
 from pipeline_types import EnrichedPdfFile
@@ -82,6 +83,7 @@ class RefinedQuestionsModel(BaseModel):
 class RefineQuestionsAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
     def __init__(self):
         super().__init__(DEFAULT_REFINE_QUESTIONS_MODEL)
+        self.name = "Refine Questions Agent"
 
     async def _process(
         self, inputs: AsyncIterator[FinetuneEntry]
@@ -113,6 +115,7 @@ class RefineQuestionsAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
 
 class EmbedChunksAgent(Agent[List[EnrichedPdfChunk], List[EnrichedPdfChunk]]):
     def __init__(self, embeddings_func: OpenAIEmbeddings, vector_store: Chroma):
+        super().__init__("Embed Chunks Agent")
         self.embeddings_func = embeddings_func
         self.vector_store = vector_store
 
@@ -161,6 +164,7 @@ async def slurp_iterator(generator: AsyncIterator[T]) -> List[T]:
 
 class ChunkTextAgent(Agent[EnrichedPdfFile, EnrichedPdfChunk]):
     def __init__(self, chunk_size: int, chunk_overlap: int):
+        super().__init__(f"Chunk Text Agent ({chunk_size})")
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -249,26 +253,45 @@ async def generate_finetune_entries_for_files_in_directory(
     pipeline = (
         EnrichPdfFileAgent()
         .and_then(ChunkTextAgent(chunk_size, chunk_overlap))
-        .chunk(10)
+        .chunk(10)  # We embed 10 text chunks at a time
         .and_then(EmbedChunksAgent(embeddings_func, vector_store))
-        .and_then(UnchunkingAgent())
+        .and_then(UnchunkingAgent())  # Undo the previous chunking
         .fan_out(
             10,
             EnrichAgent(
                 EntityExtractionAgent(entity_batch_size),
                 lambda e: e["chunk"],
-                lambda e, entities: cast(
-                    EnrichedPdfChunkWithEntities, {**e, "entities": entities}
+                lambda e, entities: EnrichedPdfChunkWithEntities(
+                    filename=e["filename"],
+                    source=e["source"],
+                    source_type=e["source_type"],
+                    chunk=e["chunk"],
+                    entities=entities,
                 ),
             ),
         )
         .fan_out(10, QuestionGenerator(model, question_batch_size))
         .and_then(RemoveDuplicateQuestionsAgent())
-        .fan_out(10, GetAnswerAgent())
+        .fan_out(
+            10,
+            EnrichAgent(
+                GetAnswerAgent(),
+                lambda e: QuestionWithChunk(question=e["question"], chunk=e["chunk"]),
+                lambda e, answer: FinetuneEntry(
+                    filename=e["filename"],
+                    source=e["source"],
+                    source_type=e["source_type"],
+                    chunk=e["chunk"],
+                    question=e["question"],
+                    answer=answer,
+                ),
+            ),
+        )
         .fan_out(10, RefineQuestionsAgent())
         .and_then(RemoveSimilarQuestionsAgent(embeddings_func, 0.9))
         .fan_out(10, GetRAGAnswerAgent(vector_store))
     )
+    print(pipeline.to_dot())
 
     return await slurp_iterator(pipeline.process_list(pdf_files))
 
@@ -309,6 +332,7 @@ class GetRAGAnswerAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
             model=DEFAULT_REFINE_QUESTIONS_MODEL,
             embedding_model="text-embedding-nomic-embed-text-v1.5@f32",
         )
+        self.name = "Get RAG Answer Agent"
         self.vector_store = vector_store
         self.k = k
 
@@ -339,12 +363,13 @@ class GetRAGAnswerAgent(OpenAIAgent[FinetuneEntry, FinetuneEntry]):
                     },
                 ],
             )
-            yield input # Also return original entry
+            yield input  # Also return original entry
             yield {**input, "answer": resp}
 
 
 class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
     def __init__(self, embeddings_func: OpenAIEmbeddings, threshold: float):
+        super().__init__("Remove Similar Questions Agent")
         self.embeddings_func = embeddings_func
         self.threshold = threshold
 

@@ -12,6 +12,7 @@ from helpers import (
     get_messages_response_async,
 )
 from agent import OpenAIAgent
+from agent import MapAgent
 from pipeline_types import FinetuneEntry
 from pipeline_types import (
     EnrichedPdfChunkWithEntities,
@@ -95,6 +96,7 @@ class QuestionGenerator(
 ):
     def __init__(self, model: str, batch_size: int = 10):
         super().__init__(model)
+        self.name = "Question Generator"
         self.batch_size = batch_size
 
     async def _process(
@@ -145,34 +147,28 @@ class QAPair(TypedDict):
     chunk: str
     chunk_index: int
 
+class QuestionWithChunk(TypedDict):
+    question: str
+    chunk: str
 
-class GetAnswerAgent(OpenAIAgent[EnrichedPdfChunkWithQuestion, FinetuneEntry]):
+
+class GetAnswerAgent(OpenAIAgent[QuestionWithChunk, str], MapAgent[QuestionWithChunk, str]):
     def __init__(self):
         super().__init__(DEFAULT_QUESTION_ANSWER_MODEL)
+        self.name = "Get Answer Agent"
 
-    async def _process(
-        self, inputs: AsyncIterator[EnrichedPdfChunkWithQuestion]
-    ) -> AsyncIterator[FinetuneEntry]:
-        async for input in inputs:
-            print(f"Generating answer for Question: {input['question']}")
-            answer = await get_messages_response_async(
-                client=self.client,
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": ANSWER_EXTRACTION_SYSTEM_PROMPT.format(
-                            text=input["chunk"]
-                        ),
-                    },
-                    {"role": "user", "content": input["question"]},
-                ],
-            )
-            yield FinetuneEntry(
-                filename=input["filename"],
-                source=input["source"],
-                source_type=input["source_type"],
-                chunk=input["chunk"],
-                question=input["question"],
-                answer=answer,
-            )
+    async def handle(self, input: QuestionWithChunk) -> str:
+        print(f"Generating answer for Question: {input['question']}")
+        return await get_messages_response_async(
+            client=self.client,
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": ANSWER_EXTRACTION_SYSTEM_PROMPT.format(
+                        text=input["chunk"]
+                    ),
+                },
+                {"role": "user", "content": input["question"]},
+            ],
+        )

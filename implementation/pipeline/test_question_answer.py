@@ -1,10 +1,15 @@
 import unittest
 from helpers import get_async_client
+from question_answer import QuestionWithChunk
 from question_answer import GetAnswerAgent
 
 
 class TestQuestionAnswer(unittest.IsolatedAsyncioTestCase):
     async def test_get_answer(self):
-        agent = GetAnswerAgent(chunk_index=0, chunk="My favorite food is sushi")
-        async for response in agent.process_once("What is my favorite food?"):
-            self.assertTrue("sushi" in response["answer"].lower())
+        agent = GetAnswerAgent()
+        response = await agent.handle(
+            QuestionWithChunk(
+                question="What is my favorite food?", chunk="My favorite food is sushi"
+            )
+        )
+        self.assertTrue("sushi" in response.lower())
