@@ -346,7 +346,7 @@ class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
         super().__init__("Get RAG Answer Agent")
         self.messages_agent = OpenAIMessagesAgent(
             model=DEFAULT_REFINE_QUESTIONS_MODEL,
-        ).with_cache("get_rag_answer_cache.json")
+        )
         self.vector_store = vector_store
         self.k = k
 
