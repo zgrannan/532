@@ -65,6 +65,7 @@ class EntityExtractionAgent(OpenAIAgent, MapAgent[str, List[str]]):
         self.max_entities = max_entities
 
     async def handle(self, input: str) -> List[str]:
+        print(f"Handle {input}")
         entity_prompt = ENTITY_EXTRACTION_SYSTEM_PROMPT.format(
             text=input, max_entities=self.max_entities
         )

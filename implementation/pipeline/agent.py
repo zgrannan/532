@@ -67,7 +67,13 @@ class Pipeline(ABC, Generic[Input, Output]):
 
     def process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
         assert isinstance(input, AsyncIterator), "input must be an AsyncIterator"
-        return self._process(input)
+
+        async def iterator() -> AsyncIterator[Input]:
+            async for elem in input:
+                assert elem is not None, "`None` should not be used as a pipeline input"
+                yield elem
+
+        return self._process(iterator())
 
     def fan_out(
         self, max_parallelism: int, agent: "Agent[Output, V]"
@@ -242,7 +248,11 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
         async def to_iterator() -> AsyncIterator[T]:
             async for elem in input:
                 await queue.put(elem)
-                yield self.to(elem)
+                try:
+                    yield self.to(elem)
+                except Exception as e:
+                    print(f"Error in `to` function of {self.name}: {e}")
+                    raise e
 
         async for elem in self.agent.process(to_iterator()):
             orig_input = await queue.get()
@@ -342,23 +352,31 @@ class ParallelAgent(Agent[T, U]):
         return {**self.agent.nodes(), self.id: self.name}
 
     async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[U]:
-        queue: asyncio.Queue[U] = asyncio.Queue()
+        queue: asyncio.Queue[U | None | Exception] = asyncio.Queue()
         tasks = []
 
         async def worker(elem: T):
             async with self.semaphore:
-                # Process the element and put outputs into the queue
-                async for output in self.agent.process_once(elem):
-                    await queue.put(output)
+                try:
+                    # Process the element and put outputs into the queue
+                    async for output in self.agent.process_once(elem):
+                        await queue.put(output)
+                except Exception as e:
+                    print(f"Exception from agent {self.agent.name}: {e}")
+                    await queue.put(e)  # Put exception into queue to propagate
+                    raise e
 
         async def producer():
-            # Start worker tasks for each input element
-            async for elem in input:
-                task = asyncio.create_task(worker(elem))
-                tasks.append(task)
-            # Wait for all tasks to complete
-            await asyncio.gather(*tasks)
-            # Signal that processing is complete
+            try:
+                # Start worker tasks for each input element
+                async for elem in input:
+                    task = asyncio.create_task(worker(elem))
+                    tasks.append(task)
+            except Exception as e:
+                print(f"Exception from producer of {self.name}: {e}")
+                await queue.put(e)
+            finally:
+                await asyncio.gather(*tasks)
             await queue.put(None)
 
         # Start the producer task
@@ -369,6 +387,10 @@ class ParallelAgent(Agent[T, U]):
             output = await queue.get()
             if output is None:
                 break
+            if isinstance(output, Exception):
+                print(f"Propagating exception from {self.agent.name}: {output}")
+                await producer_task
+                raise output
             yield output
 
         # Ensure the producer task has completed
