@@ -19,6 +19,7 @@ from pipeline_types import (
     EnrichedPdfChunkWithEntities,
     EnrichedPdfChunkWithQuestion,
 )
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -126,7 +127,7 @@ class QuestionGenerator(
             source=source,
             source_type=source_type,
         )
-        print(f"Length of qa_prompt: {len(qa_prompt)}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of qa_prompt: {len(qa_prompt)}")
         return (
             await get_json_response_async(
                 client=self.client,
@@ -160,17 +161,22 @@ class GetAnswerAgent(OpenAIAgent, MapAgent[QuestionWithChunk, str]):
         MapAgent.__init__(self, name="Get Answer Agent")
 
     async def handle(self, input: QuestionWithChunk) -> str:
-        print(f"Generating answer for Question: {input['question']}")
-        return await get_messages_response_async(
-            client=self.client,
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": ANSWER_EXTRACTION_SYSTEM_PROMPT.format(
-                        text=input["chunk"]
-                    ),
-                },
-                {"role": "user", "content": input["question"]},
-            ],
-        )
+        try:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating answer for Question: {input['question']}")
+            return await get_messages_response_async(
+                client=self.client,
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": ANSWER_EXTRACTION_SYSTEM_PROMPT.format(
+                            text=input["chunk"]
+                        ),
+                    },
+                    {"role": "user", "content": input["question"]},
+                ],
+            )
+        except Exception as e:
+            # Return default answer, ideally code should not reach here
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in GetAnswerAgent handle(), {str(e)}")
+            return "ERROR ANSWER NOT FOUND"
