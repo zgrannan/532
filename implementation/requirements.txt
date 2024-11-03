@@ -8,6 +8,9 @@ docstring_parser==0.16
 GitPython==3.1.43
 instructor==1.6.3
 langchain_text_splitters==0.3.0
+langchain_chroma==0.1.4
+langchain_openai==0.2.5
+langchain_core==0.3.15
 matplotlib==3.8.4
 numpy==2.1.2
 openai==1.52.2
@@ -23,6 +26,7 @@ python-dotenv==1.0.1
 PyYAML==6.0.2
 Requests==2.32.3
 safetensors==0.4.5
+scikit-learn==1.5.2
 sentencepiece==0.2.0
 setuptools==69.5.1
 sphinx_material==0.0.36
@@ -32,3 +36,4 @@ torch==2.5.0
 tqdm==4.66.4
 transformers==4.46.0
 typing_extensions==4.12.2
+chromadb==0.5.17

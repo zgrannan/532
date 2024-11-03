@@ -16,7 +16,7 @@ from typing import (
     cast,
     Optional,
 )
-
+import time
 import asyncio
 
 from langchain_openai import OpenAIEmbeddings
@@ -27,6 +27,7 @@ from abc import ABC, abstractmethod
 
 from helpers import once
 from helpers import get_messages_response_async
+from datetime import datetime
 
 Input = TypeVar("Input")
 Output = TypeVar("Output")
@@ -197,8 +198,8 @@ class StatelessAgent(Agent[Input, Output]):
             async for output in self.process_element(elem):
                 yield output
 
-    def with_cache(self, filename: str) -> "Agent[Input, Output]":
-        return CacheStatelessAgent(self, filename)
+    def with_cache(self, filename: str, batch_size: int = 10) -> "Agent[Input, Output]":
+        return CacheStatelessAgent(self, filename, batch_size)
 
 
 class MapAgent(StatelessAgent[Input, Output], Generic[Input, Output]):
@@ -216,8 +217,8 @@ class MapAgent(StatelessAgent[Input, Output], Generic[Input, Output]):
     async def handle(self, input: Input) -> Output:
         pass
 
-    def with_cache(self, filename: str) -> "MapAgent[Input, Output]":
-        return CacheMapAgent(self, filename)
+    def with_cache(self, filename: str, batch_size: int = 10) -> "MapAgent[Input, Output]":
+        return CacheMapAgent(self, filename, batch_size)
 
 
 class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
@@ -251,8 +252,8 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
                 try:
                     yield self.to(elem)
                 except Exception as e:
-                    print(f"Error in `to` function of {self.name}: {e}")
-                    raise e
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in `to` function of {self.name}: {e}")
+                    # raise e
 
         async for elem in self.agent.process(to_iterator()):
             orig_input = await queue.get()
@@ -354,7 +355,6 @@ class ParallelAgent(Agent[T, U]):
     async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[U]:
         queue: asyncio.Queue[U | None | Exception] = asyncio.Queue()
         tasks = []
-
         async def worker(elem: T):
             async with self.semaphore:
                 try:
@@ -362,9 +362,9 @@ class ParallelAgent(Agent[T, U]):
                     async for output in self.agent.process_once(elem):
                         await queue.put(output)
                 except Exception as e:
-                    print(f"Exception from agent {self.agent.name}: {e}")
-                    await queue.put(e)  # Put exception into queue to propagate
-                    raise e
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Exception from agent {self.agent.name}: {e}")
+                    # await queue.put(e)  # Put exception into queue to propagate
+                    # raise e
 
         async def producer():
             try:
@@ -373,25 +373,31 @@ class ParallelAgent(Agent[T, U]):
                     task = asyncio.create_task(worker(elem))
                     tasks.append(task)
             except Exception as e:
-                print(f"Exception from producer of {self.name}: {e}")
-                await queue.put(e)
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Exception from producer of {self.name}: {e}")
+                # await queue.put(e)
             finally:
-                await asyncio.gather(*tasks)
-            await queue.put(None)
+                await asyncio.gather(*tasks, return_exceptions=True)
+                await queue.put(None)
 
         # Start the producer task
         producer_task = asyncio.create_task(producer())
 
         # Consume outputs from the queue as they become available
         while True:
-            output = await queue.get()
-            if output is None:
-                break
-            if isinstance(output, Exception):
-                print(f"Propagating exception from {self.agent.name}: {output}")
-                await producer_task
-                raise output
-            yield output
+            try:
+                output = await queue.get()
+                if output is None:
+                    break
+                if isinstance(output, Exception):
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Skipping error - exception from {self.agent.name}: {output}")
+                    continue
+                    # await producer_task
+                    # raise output
+                yield output
+            except Exception as e:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in queue processing {str(e)}")
+                continue
+                # raise e
 
         # Ensure the producer task has completed
         await producer_task
@@ -480,8 +486,10 @@ class CacheAgentBase(Generic[Input, Output]):
     Base class that handles caching logic for agents.
     """
 
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, batch_size: int = 10):
         self.filename = filename
+        self.batch_size = batch_size
+        self.pending_writes = 0
         self.cache: Dict[str, Any] = {}
         self._load_cache()
 
@@ -510,18 +518,24 @@ class CacheAgentBase(Generic[Input, Output]):
     def set_cached_output(self, input: Input, output: Any):
         input_key = json.dumps(input, default=str)
         self.cache[input_key] = output
-        self._save_cache()
-
+        self.pending_writes += 1
+        if self.pending_writes >= self.batch_size:
+            start_time=time.time()
+            # print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Saving cache to {self.filename}")
+            self._save_cache()
+            end_time=time.time()
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Time taken to save cache: {end_time-start_time} for {self.filename}")
+            self.pending_writes = 0
 
 class CacheStatelessAgent(StatelessAgent[Input, Output]):
     """
     Caching agent for StatelessAgents.
     """
 
-    def __init__(self, agent: StatelessAgent[Input, Output], filename: str):
+    def __init__(self, agent: StatelessAgent[Input, Output], filename: str, batch_size: int = 10):
         super().__init__(name=f"Cache")
         self.agent = agent
-        self.cache_base = CacheAgentBase[Input, Any](filename)
+        self.cache_base = CacheAgentBase[Input, Any](filename, batch_size)
 
     def nodes(self) -> Dict[int, str]:
         return {**self.agent.nodes(), self.id: self.name}
@@ -553,10 +567,10 @@ class CacheMapAgent(MapAgent[Input, Output]):
     Caching agent for MapAgents.
     """
 
-    def __init__(self, agent: MapAgent[Input, Output], filename: str):
+    def __init__(self, agent: MapAgent[Input, Output], filename: str, batch_size: int = 10):
         super().__init__(name=f"Cache")
         self.agent = agent
-        self.cache_base = CacheAgentBase[Input, Output](filename)
+        self.cache_base = CacheAgentBase[Input, Output](filename, batch_size)
 
     def edges(self) -> List[Tuple[int, int]]:
         return [
@@ -569,10 +583,14 @@ class CacheMapAgent(MapAgent[Input, Output]):
         return {**self.agent.nodes(), self.id: self.name}
 
     async def handle(self, input: Input) -> Output:
+        # print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] In CacheMapAgent handle")
+        # print(input)
         cached_output = self.cache_base.get_cached_output(input)
         if cached_output is not None:
             return cached_output
         else:
+            # print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Now in cache calling self.agent.handle")
             output = await self.agent.handle(input)
+            # print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Now in cache calling self.cache_base.set_cached_output")
             self.cache_base.set_cached_output(input, output)
             return output

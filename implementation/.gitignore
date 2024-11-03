@@ -9,3 +9,6 @@ finetuning/*
 env/*
 chroma_langchain_db
 .vscode
+*.json
+data3/*
+data2/*

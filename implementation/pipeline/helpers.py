@@ -26,8 +26,8 @@ def timing_decorator(func):
     return wrapper
 
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=4, max=15),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
 @timing_decorator
@@ -52,8 +52,8 @@ def get_json_response(
 T = TypeVar('T', bound=BaseModel)
 
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=4, max=15),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
 async def get_json_response_async(
@@ -76,7 +76,7 @@ async def get_json_response_async(
 
 @retry(
     stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
+    wait=wait_exponential(multiplier=1, min=4, max=15),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
 @timing_decorator
@@ -98,7 +98,7 @@ def get_messages_response(
 
 @retry(
     stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
+    wait=wait_exponential(multiplier=1, min=4, max=15),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
 async def get_messages_response_async(
@@ -119,7 +119,7 @@ async def get_messages_response_async(
 
 @retry(
     stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
+    wait=wait_exponential(multiplier=1, min=4, max=15),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
 async def get_embeddings_resp_async(
