@@ -5,7 +5,6 @@ from agent import OpenAIAgent
 from helpers import get_json_response_async, get_model
 from agent import MapAgent
 
-
 ENTITY_EXTRACTION_SYSTEM_PROMPT = """
   You are an entity extractor that extracts entities and facts from the following document in JSON. Your goal is to only extract entities and facts as a JSON object.
   Entities can be concepts, topics, objects, people, place, dates, or important information.
@@ -65,7 +64,6 @@ class EntityExtractionAgent(OpenAIAgent, MapAgent[str, List[str]]):
         self.max_entities = max_entities
 
     async def handle(self, input: str) -> List[str]:
-        print(f"Handle {input}")
         entity_prompt = ENTITY_EXTRACTION_SYSTEM_PROMPT.format(
             text=input, max_entities=self.max_entities
         )
