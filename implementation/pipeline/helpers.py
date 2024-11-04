@@ -10,6 +10,7 @@ from langchain_text_splitters import TokenTextSplitter
 import os
 import time
 from langchain_openai import OpenAIEmbeddings
+from token_tracking import track_llm_usage
 
 LM_STUDIO_BASE_URL = "http://localhost:1234/v1"
 logging.basicConfig(level=logging.INFO)
@@ -30,24 +31,26 @@ def timing_decorator(func):
     wait=wait_exponential(multiplier=1, min=4, max=15),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
-@timing_decorator
+@track_llm_usage
 def get_json_response(
                     client: OpenAI,
                     model: str,
                     messages: List[ChatCompletionMessageParam],
                     response_format: type[BaseModel],
-                    temperature: float = 0.0) -> BaseModel:
+                    temperature: float = 0.0,
+                    agent_name: str = "", # for track_llm_usage
+                    **kwargs: dict,
+                ) -> BaseModel:
 
     response = client.beta.chat.completions.parse(
         messages=messages,
         model=model,
         temperature=temperature,
-        response_format=response_format
+        response_format=response_format,
+        **kwargs
     )
-    result = response.choices[0].message.parsed
-    if result is None:
-        raise ValueError("No result returned from client")
-    return result
+
+    return response
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -56,66 +59,71 @@ T = TypeVar('T', bound=BaseModel)
     wait=wait_exponential(multiplier=1, min=4, max=15),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
+@track_llm_usage
 async def get_json_response_async(
                     client: AsyncOpenAI,
                     model: str,
                     messages: List[ChatCompletionMessageParam],
                     response_format: type[T],
-                    temperature: float = 0.0) -> T:
-
+                    temperature: float = 0.0,
+                    agent_name: str = "", # for track_llm_usage
+                    **kwargs: dict,
+                    ) -> T:
     response = await client.beta.chat.completions.parse(
         messages=messages,
         model=model,
         temperature=temperature,
-        response_format=response_format
+        response_format=response_format,
+        **kwargs
     )
-    result = response.choices[0].message.parsed
-    if result is None:
-        raise ValueError("No result returned from client")
-    return result
+
+    return response
 
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=4, max=15),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
-@timing_decorator
+@track_llm_usage
 def get_messages_response(
                     client: OpenAI,
                     model: str,
                     messages: List[ChatCompletionMessageParam],
-                    temperature: float = 0.0) -> str:
+                    temperature: float = 0.0,
+                    agent_name: str = "", # for track_llm_usage
+                    **kwargs: dict,
+                    ) -> str:
     response = client.chat.completions.create(
         messages = messages,
         model = model,
         temperature = temperature,
+        **kwargs
     )
 
-    result = response.choices[0].message.content
-    if result is None:
-        raise ValueError("No result returned from client")
-    return result
+    return response
 
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=4, max=15),
     before_sleep=before_sleep_log(logger, logging.ERROR),
 )
+@track_llm_usage
 async def get_messages_response_async(
                     client: AsyncOpenAI,
                     model: str,
                     messages: List[ChatCompletionMessageParam],
-                    temperature: float = 0.0) -> str:
+                    temperature: float = 0.0,
+                    agent_name: str = "", # for track_llm_usage
+                    **kwargs: dict,
+                    ) -> str:
     response = await client.chat.completions.create(
         messages = messages,
         model = model,
         temperature = temperature,
+        **kwargs
     )
 
-    result = response.choices[0].message.content
-    if result is None:
-        raise ValueError("No result returned from client")
-    return result
+    return response
 
 @retry(
     stop=stop_after_attempt(5),
