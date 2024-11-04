@@ -6,6 +6,7 @@
 .ipynb_checkpoints
 finetuning/*
 !finetuning/*.ipynb
+!finetuning/*.py
 env/*
 chroma_langchain_db
 .vscode
