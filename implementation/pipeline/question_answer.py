@@ -18,6 +18,7 @@ from pipeline_types import FinetuneEntry
 from pipeline_types import (
     EnrichedPdfChunkWithEntities,
     EnrichedPdfChunkWithQuestion,
+    EnrichedPdfChunk
 )
 from datetime import datetime
 
@@ -25,24 +26,25 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 QUESTION_EXTRACTION_SYSTEM_PROMPT = """
-Given a piece of text, generate enough diverse questions to thoroughly explore the key entities mentioned.
-For each key entity, generate a set of 'what, why, summarize, where' questions, ensuring the questions cover different aspects of the entity.
+Given a piece of text, generate enough diverse questions to thoroughly explore the key topics mentioned.
+Generate a set of 'what, why, summarize, where, how questions, ensuring the questions cover different aspects of the text.
 The questions should follow these instructions:
 
 # Instructions
 
-1. Generate a mix of 'what, why, summarize, where' questions.
-2. Ensure the questions are diverse and cover the entities identified in the text.
-3. Include the source information in the questions.
-4. Keep the number of questions open-ended to ensure full coverage of the topic.
-5. Ensure clarity and relevance in each question.
-6. Extract the questions as a list in JSON format
+1. Generate a mix of 'what, why, summarize, where, how questions.
+2. Ensure the questions are diverse and cover the topics identified in the text.
+3. ALWAYS Include the source information in the questions.
+4. Connect main ideas and themes in the text to the questions.
+5. DO NOT INCLUDE anything other than the questions in the output.
+6. Generate questions that can be accurately answered based on the text provided.
+7. Extract the questions as a list in JSON format
+
 
 Below is an example
 
 # Example
 
-Entities: Visual Prompt Tuning, Vision Transformers, Prompt Tuning
 Text: "Learning generative image models from various domains efficiently needs transferring knowledge from an image synthesis model trained on a large dataset. We present a recipe for learning vision transformers by generative knowledge transfer. We base our framework on generative vision transformers representing an image as a sequence of visual tokens with the autoregressive or non-autoregressive transformers. To adapt to a new domain, we employ prompt tuning, which prepends learnable tokens called prompts to the image token sequence and introduces a new prompt design for our task. We study on a variety of visual domains with varying amounts of training images. We show the effectiveness of knowledge transfer and a significantly better image generation quality."
 Source: "Visual prompt tuning"
 SourceType: "Paper"
@@ -59,8 +61,7 @@ SourceType: "Paper"
     ]
 }}
 
-# Entities:
-{entities}
+DO NOT GENERATE QUESTIONS FROM THIS EXAMPLE. USE THE TEXT PROVIDED IN THE QUESTION PROMPT.
 
 # Text:
 {text}
@@ -95,7 +96,7 @@ from typing import TypedDict
 
 class QuestionGenerator(
     OpenAIAgent,
-    StatelessAgent[EnrichedPdfChunkWithEntities, EnrichedPdfChunkWithQuestion],
+    StatelessAgent[EnrichedPdfChunk, EnrichedPdfChunkWithQuestion],
 ):
     def __init__(self, model: str, batch_size: int = 10):
         super().__init__(model)
@@ -103,27 +104,25 @@ class QuestionGenerator(
         self.batch_size = batch_size
 
     async def process_element(
-        self, input: EnrichedPdfChunkWithEntities
+        self, input: EnrichedPdfChunk
     ) -> AsyncIterator[EnrichedPdfChunkWithQuestion]:
-        for i in range(0, len(input["entities"]), self.batch_size):
-            entities = input["entities"][i : i + self.batch_size]
-            for question in await self._generate_questions(
-                input["chunk"], input["source"], input["source_type"], entities
-            ):
-                yield EnrichedPdfChunkWithQuestion(
-                    filename=input["filename"],
-                    source=input["source"],
-                    source_type=input["source_type"],
-                    chunk=input["chunk"],
-                    question=question,
-                )
+
+        for question in await self._generate_questions(
+            input["chunk"], input["source"], input["source_type"]
+        ):
+            yield EnrichedPdfChunkWithQuestion(
+                filename=input["filename"],
+                source=input["source"],
+                source_type=input["source_type"],
+                chunk=input["chunk"],
+                question=question,
+            )
 
     async def _generate_questions(
-        self, chunk: str, source: str, source_type: str, entities: List[str]
+        self, chunk: str, source: str, source_type: str,
     ) -> List[str]:
         qa_prompt = QUESTION_EXTRACTION_SYSTEM_PROMPT.format(
             text=chunk,
-            entities=", ".join(entities),
             source=source,
             source_type=source_type,
         )
@@ -136,12 +135,9 @@ class QuestionGenerator(
                     {"role": "system", "content": qa_prompt},
                 ],
                 response_format=QuestionAnswerModel,
+                agent_name=self.name,
             )
         ).questions
-
-
-DEFAULT_QUESTION_ANSWER_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
-
 
 class QAPair(TypedDict):
     question: str
@@ -156,8 +152,8 @@ class QuestionWithChunk(TypedDict):
 
 
 class GetAnswerAgent(OpenAIAgent, MapAgent[QuestionWithChunk, str]):
-    def __init__(self):
-        super().__init__(DEFAULT_QUESTION_ANSWER_MODEL)
+    def __init__(self, model):
+        super().__init__(model)
         MapAgent.__init__(self, name="Get Answer Agent")
 
     async def handle(self, input: QuestionWithChunk) -> str:
@@ -175,6 +171,7 @@ class GetAnswerAgent(OpenAIAgent, MapAgent[QuestionWithChunk, str]):
                     },
                     {"role": "user", "content": input["question"]},
                 ],
+                agent_name=self.name,
             )
         except Exception as e:
             # Return default answer, ideally code should not reach here

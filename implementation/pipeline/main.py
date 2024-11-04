@@ -60,6 +60,7 @@ from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import random 
+from token_tracking import tracker 
 load_dotenv(find_dotenv())
 
 
@@ -111,6 +112,7 @@ class RefineQuestionsAgent(
                 },
             ],
             response_format=RefinedQuestionsModel,
+            agent_name=self.name,
         )
         yield input  # Also return the original question
         for question in resp.questions:
@@ -244,14 +246,13 @@ async def generate_finetune_entries_for_files_in_directory(
     for file in pdf_files:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing file: {file}")
 
-    RUN_NAME = "20241028165628"
     EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"  # on LM Studio
     chunk_size = 5000
     chunk_overlap = 100
     entity_batch_size = 10
     question_batch_size = 10
-    model = "meta-llama-3.1-8b-instruct-q6_k"
-
+    # model = "meta-llama-3.1-8b-instruct-q6_k"
+    model = "lmstudio-community/qwen2.5-7b-instruct"
     embeddings_func = OpenAIEmbeddings(
         model=EMBEDDING_MODEL,
         base_url="http://localhost:1234/v1",
@@ -280,34 +281,17 @@ async def generate_finetune_entries_for_files_in_directory(
         .chunk(10)  # We embed 10 text chunks at a time
         .and_then(UnchunkingAgent())  # Undo the previous chunking
         .fan_out(
-            max_parallelism=10,
-            agent=EnrichAgent(
-                EntityExtractionAgent(entity_batch_size).with_cache(
-                    filename=f"cache/{config_name}_entity_extraction_cache.json",
-                    batch_size=10,
-                ),
-                lambda e: e["chunk"],
-                lambda e, entities: EnrichedPdfChunkWithEntities(
-                    filename=e["filename"],
-                    source=e["source"],
-                    source_type=e["source_type"],
-                    chunk=e["chunk"],
-                    entities=entities,
-                ),
-            ),
-        )
-        .fan_out(
             10,
             QuestionGenerator(model, question_batch_size).with_cache(
                 filename=f"cache/{config_name}_question_generator_cache.json",
                 batch_size=10,
             ),
         )
-        .and_then(RemoveDuplicateQuestionsAgent())
+        .and_then(RemoveSimilarQuestionsAgent(embeddings_func, 0.9))
         .fan_out(
             10,
             EnrichAgent(
-                GetAnswerAgent().with_cache(filename=f"cache/{config_name}_get_answer_cache.json", batch_size=10),
+                GetAnswerAgent(model).with_cache(filename=f"cache/{config_name}_get_answer_cache.json", batch_size=10),
                 lambda e: QuestionWithChunk(question=e["question"], chunk=e["chunk"]),
                 lambda e, answer: FinetuneEntry(
                     filename=e["filename"],
@@ -321,7 +305,7 @@ async def generate_finetune_entries_for_files_in_directory(
         )
         .fan_out(10, RefineQuestionsAgent(sampling_percent=0.5).with_cache(f"cache/{config_name}_refine_question_cache.json", batch_size=10))
         .and_then(RemoveSimilarQuestionsAgent(embeddings_func, 0.8))
-        .fan_out(10, GetRAGAnswerAgent(vector_store))
+        .fan_out(10, GetRAGAnswerAgent(model, vector_store))
     )
     print(pipeline.to_dot())
 
@@ -359,10 +343,10 @@ REFINED_RAG_ANSWER_PROMPT = """
 
 class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
 
-    def __init__(self, vector_store: Chroma, k: int = 5):
+    def __init__(self, model: str, vector_store: Chroma, k: int = 5):
         super().__init__("Get RAG Answer Agent")
         self.messages_agent = OpenAIMessagesAgent(
-            model=DEFAULT_REFINE_QUESTIONS_MODEL,
+            model=model,
         )
         self.vector_store = vector_store
         self.k = k
@@ -463,10 +447,6 @@ class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
 async def main():
     start_time = time.time()
 
-    # Inputs
-    ollama_base_url_embeddings = "http://localhost:11434/api/embeddings"
-    embedding_model = "nomic-embed-text"
-
     # Hugging Face
     repo_id = "CPSC532/arxiv_qa_data"
 
@@ -479,6 +459,8 @@ async def main():
     )
     args = parser.parse_args()
     config_name = args.config_name
+    
+    # asyncio.create_task(tracker.periodic_save("test_periodic_save", interval=5))
 
     # First stage getting initial Q/A Pairs
     finetune_entries = await generate_finetune_entries_for_files_in_directory("../data", config_name)
@@ -492,24 +474,23 @@ async def main():
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error filtering entry: {e}")
                 continue
     df = pd.DataFrame(finetune_entries_filtered)
-
     # if outputs folder doesn't exist, create it
     if not os.path.exists("outputs"):
         os.makedirs("outputs")
-    df.to_csv(f"outputs/{config_name}_output.csv", index=False)
+    # df.to_csv(f"outputs/{config_name}_output.csv", index=False)
 
-    # Upload to Huggingface
-    qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)
-    upload_to_hf(
-        data=qa_pairs_dict,
-        repo_id=repo_id,
-        api_key=os.getenv("HUGGINGFACE_API_KEY"),
-        config_name=config_name,
-    )
+    # # Upload to Huggingface
+    # qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)
+    # upload_to_hf(
+    #     data=qa_pairs_dict,
+    #     repo_id=repo_id,
+    #     api_key=os.getenv("HUGGINGFACE_API_KEY"),
+    #     config_name=config_name,
+    # )
 
     end_time = time.time()
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Total time: {end_time - start_time} seconds")
-
+    tracker.save_to_file(config_name)
 
 if __name__ == "__main__":
     asyncio.run(main())
