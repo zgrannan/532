@@ -79,7 +79,7 @@ def track_llm_usage(func):
             'agent_name': kwargs.get('agent_name', 'unknown'),
             'operation': 'llm',
             'model': result.model,
-            'messages': kwargs.get('messages', []),
+            'messages': kwargs.get('messages', kwargs.get('input', [])),
             'response': output_resp.model_dump() if isinstance(result, ParsedChatCompletion) else output_resp,
             'prompt_tokens': result.usage.to_dict().get('prompt_tokens', 0),
             'completion_tokens': result.usage.to_dict().get('completion_tokens', 0),

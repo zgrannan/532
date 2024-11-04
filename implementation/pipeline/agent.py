@@ -278,7 +278,7 @@ class OpenAIMessagesAgent(
         MapAgent.__init__(self, name="OpenAIMessagesAgent")
 
     async def handle(self, input: list[ChatCompletionMessageParam]) -> str:
-        return await get_messages_response_async(self.client, self.model, input, agent_name=self.name)
+        return await get_messages_response_async(client=self.client, model=self.model, messages=input, agent_name=self.name)
 
 
 async def merge_iterators_in_order(
