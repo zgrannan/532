@@ -59,8 +59,9 @@ import argparse
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
-import random 
-from token_tracking import tracker 
+import random
+from token_tracking import tracker
+
 load_dotenv(find_dotenv())
 
 
@@ -98,7 +99,9 @@ class RefineQuestionsAgent(
     async def process_element(
         self, input: FinetuneEntry
     ) -> AsyncIterator[FinetuneEntry]:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating refined question for Question: {input['question']}")
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating refined question for Question: {input['question']}"
+        )
         resp = await get_json_response_async(
             client=self.client,
             model=self.model,
@@ -126,7 +129,13 @@ class RefineQuestionsAgent(
 
 
 class EmbedChunksAgent(StatelessAgent[EnrichedPdfFile, List[EnrichedPdfChunk]]):
-    def __init__(self, embeddings_func: OpenAIEmbeddings, vector_store: Chroma, chunk_size: int, chunk_overlap: int):
+    def __init__(
+        self,
+        embeddings_func: OpenAIEmbeddings,
+        vector_store: Chroma,
+        chunk_size: int,
+        chunk_overlap: int,
+    ):
         super().__init__("Embed Chunks Agent")
         self.embeddings_func = embeddings_func
         self.vector_store = vector_store
@@ -137,7 +146,9 @@ class EmbedChunksAgent(StatelessAgent[EnrichedPdfFile, List[EnrichedPdfChunk]]):
         self, input: EnrichedPdfFile
     ) -> AsyncIterator[List[EnrichedPdfChunk]]:
         chunks = split_text(input["text"], self.chunk_size, self.chunk_overlap)
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Chunking text into {len(chunks)} chunks")
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Chunking text into {len(chunks)} chunks"
+        )
         docs = [
             Document(
                 page_content=chunk,
@@ -158,6 +169,7 @@ class EmbedChunksAgent(StatelessAgent[EnrichedPdfFile, List[EnrichedPdfChunk]]):
                 chunk=chunk,
             )
 
+
 class RemoveDuplicateQuestionsAgent(
     Agent[EnrichedPdfChunkWithQuestion, EnrichedPdfChunkWithQuestion]
 ):
@@ -177,7 +189,13 @@ V = TypeVar("V")
 
 
 async def slurp_iterator(generator: AsyncIterator[T]) -> List[T]:
-    return [item async for item in generator]
+    buffer = []
+    try:
+        async for item in generator:
+            buffer.append(item)
+        return buffer
+    except Exception as e:
+        raise e  # Could write buffer to file here
 
 
 class ChunkTextAgent(StatelessAgent[EnrichedPdfFile, EnrichedPdfChunk]):
@@ -190,7 +208,9 @@ class ChunkTextAgent(StatelessAgent[EnrichedPdfFile, EnrichedPdfChunk]):
         self, input: EnrichedPdfFile
     ) -> AsyncIterator[EnrichedPdfChunk]:
         chunks = split_text(input["text"], self.chunk_size, self.chunk_overlap)
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Chunking text into {len(chunks)} chunks")
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Chunking text into {len(chunks)} chunks"
+        )
         for chunk in chunks:
             yield EnrichedPdfChunk(
                 filename=input["filename"],
@@ -219,13 +239,17 @@ def extract_title(pdf_path) -> str:
             if "/Title" in reader.metadata and reader.metadata["/Title"]:
                 return cast(str, reader.metadata["/Title"])
         filename = os.path.splitext(os.path.basename(pdf_path))[0]
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Using filename {filename} as title")
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Using filename {filename} as title"
+        )
         return filename
 
 
 class EnrichPdfFileAgent(MapAgent[str, EnrichedPdfFile]):
     async def handle(self, filename: str) -> EnrichedPdfFile:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Enriching PDF file: {filename}")
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Enriching PDF file: {filename}"
+        )
         source = extract_title(filename)
         text = read_pdf(filename)
         return EnrichedPdfFile(
@@ -244,7 +268,9 @@ async def generate_finetune_entries_for_files_in_directory(
     ]
 
     for file in pdf_files:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing file: {file}")
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing file: {file}"
+        )
 
     EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"  # on LM Studio
     chunk_size = 5000
@@ -265,18 +291,27 @@ async def generate_finetune_entries_for_files_in_directory(
         embedding_function=embeddings_func,
         persist_directory="./chroma_langchain_db",
     )
+
+    enrich_pdf_agent = EnrichPdfFileAgent().with_cache(
+        f"cache/{config_name}_enrich_pdf_cache.json", batch_size=1
+    )
+
     # Chunking and embedding into vectordb are using different chunking parameters than first stage
     granular_chunking_pipeline = (
-        EnrichPdfFileAgent()
+        enrich_pdf_agent
         .and_then(EmbedChunksAgent(embeddings_func, vector_store, 500, 150))
         .chunk(10)
     )
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting to chunk and embed into vectordb")
+    print(
+        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting to chunk and embed into vectordb"
+    )
     res = await slurp_iterator(granular_chunking_pipeline.process_list(pdf_files))
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating finetune entries")
+    print(
+        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating finetune entries"
+    )
 
     pipeline = (
-        EnrichPdfFileAgent()
+        enrich_pdf_agent
         .and_then(ChunkTextAgent(chunk_size, chunk_overlap))
         .chunk(10)  # We embed 10 text chunks at a time
         .and_then(UnchunkingAgent())  # Undo the previous chunking
@@ -291,7 +326,9 @@ async def generate_finetune_entries_for_files_in_directory(
         .fan_out(
             10,
             EnrichAgent(
-                GetAnswerAgent(model).with_cache(filename=f"cache/{config_name}_get_answer_cache.json", batch_size=10),
+                GetAnswerAgent(model).with_cache(
+                    filename=f"cache/{config_name}_get_answer_cache.json", batch_size=10
+                ),
                 lambda e: QuestionWithChunk(question=e["question"], chunk=e["chunk"]),
                 lambda e, answer: FinetuneEntry(
                     filename=e["filename"],
@@ -303,7 +340,12 @@ async def generate_finetune_entries_for_files_in_directory(
                 ),
             ),
         )
-        .fan_out(10, RefineQuestionsAgent(sampling_percent=0.5).with_cache(f"cache/{config_name}_refine_question_cache.json", batch_size=10))
+        .fan_out(
+            10,
+            RefineQuestionsAgent(sampling_percent=0.5).with_cache(
+                f"cache/{config_name}_refine_question_cache.json", batch_size=10
+            ),
+        )
         .and_then(RemoveSimilarQuestionsAgent(embeddings_func, 0.8))
         .fan_out(10, GetRAGAnswerAgent(model, vector_store))
     )
@@ -369,12 +411,18 @@ class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
         # Get docs from vector store
         async for input in inputs:
             try:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Searching filter=filename: {input['source']}")
+                print(
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Searching filter=filename: {input['source']}"
+                )
                 docs = await self.vector_store.asimilarity_search(
-                    query=input["question"], k=self.k, filter={"filename": input["source"]}
+                    query=input["question"],
+                    k=self.k,
+                    filter={"filename": input["source"]},
                 )
                 docs_str = "\n".join([r.page_content for r in docs])
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating RAG answer for Question: {input['question']}")
+                print(
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating RAG answer for Question: {input['question']}"
+                )
                 resp = await self.messages_agent.handle(
                     [
                         {
@@ -390,8 +438,10 @@ class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
                 yield input  # Also return original entry
                 yield {**input, "answer": resp}
             except Exception as e:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error generating RAG answer: {e}")
-                yield input # Return original entry if error occurs
+                print(
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error generating RAG answer: {e}"
+                )
+                yield input  # Return original entry if error occurs
 
 
 class EmbeddingsAgent(MapAgent[str, list[float]]):
@@ -436,9 +486,11 @@ class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
         filtered_data = [
             item for i, item in enumerate(input_list) if i not in indices_to_remove
         ]
-        
+
         # Print the number of questions removed
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Removed {len(indices_to_remove)} similar questions from {len(input_list)} questions")
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Removed {len(indices_to_remove)} similar questions from {len(input_list)} questions"
+        )
 
         for item in filtered_data:
             yield item
@@ -459,19 +511,27 @@ async def main():
     )
     args = parser.parse_args()
     config_name = args.config_name
-    
+
     # asyncio.create_task(tracker.periodic_save("test_periodic_save", interval=5))
 
     # First stage getting initial Q/A Pairs
-    finetune_entries = await generate_finetune_entries_for_files_in_directory("../data", config_name)
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generated {len(finetune_entries)} finetune entries")
-    finetune_entries_filtered = [] # In case of any errors, we can filter out the None entries
+    finetune_entries = await generate_finetune_entries_for_files_in_directory(
+        "../data", config_name
+    )
+    print(
+        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generated {len(finetune_entries)} finetune entries"
+    )
+    finetune_entries_filtered = (
+        []
+    )  # In case of any errors, we can filter out the None entries
     for entry in finetune_entries:
         if entry is not None:
             try:
                 finetune_entries_filtered.append(entry)
             except Exception as e:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error filtering entry: {e}")
+                print(
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error filtering entry: {e}"
+                )
                 continue
     df = pd.DataFrame(finetune_entries_filtered)
     # if outputs folder doesn't exist, create it
@@ -489,8 +549,11 @@ async def main():
     )
 
     end_time = time.time()
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Total time: {end_time - start_time} seconds")
+    print(
+        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Total time: {end_time - start_time} seconds"
+    )
     tracker.save_to_file(config_name)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

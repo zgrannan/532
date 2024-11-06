@@ -5,6 +5,7 @@ cffi==1.16.0
 click==8.1.7
 datasets==2.20.0
 docstring_parser==0.16
+diskcache==5.6.3
 GitPython==3.1.43
 instructor==1.6.3
 langchain_text_splitters==0.3.0
@@ -12,7 +13,7 @@ langchain_chroma==0.1.4
 langchain_openai==0.2.5
 langchain_core==0.3.15
 matplotlib==3.8.4
-numpy==2.1.2
+numpy>=1.17
 openai==1.52.2
 pandas==2.2.3
 Pillow==11.0.0

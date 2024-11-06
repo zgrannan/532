@@ -2,6 +2,7 @@ import itertools
 import json
 import os
 import tempfile
+import diskcache
 from typing import (
     Any,
     AsyncIterator,
@@ -217,7 +218,9 @@ class MapAgent(StatelessAgent[Input, Output], Generic[Input, Output]):
     async def handle(self, input: Input) -> Output:
         pass
 
-    def with_cache(self, filename: str, batch_size: int = 10) -> "MapAgent[Input, Output]":
+    def with_cache(
+        self, filename: str, batch_size: int = 10
+    ) -> "MapAgent[Input, Output]":
         return CacheMapAgent(self, filename, batch_size)
 
 
@@ -252,7 +255,9 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
                 try:
                     yield self.to(elem)
                 except Exception as e:
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in `to` function of {self.name}: {e}")
+                    print(
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in `to` function of {self.name}: {e}"
+                    )
                     # raise e
 
         async for elem in self.agent.process(to_iterator()):
@@ -278,7 +283,9 @@ class OpenAIMessagesAgent(
         MapAgent.__init__(self, name="OpenAIMessagesAgent")
 
     async def handle(self, input: list[ChatCompletionMessageParam]) -> str:
-        return await get_messages_response_async(client=self.client, model=self.model, messages=input, agent_name=self.name)
+        return await get_messages_response_async(
+            client=self.client, model=self.model, messages=input, agent_name=self.name
+        )
 
 
 async def merge_iterators_in_order(
@@ -355,6 +362,7 @@ class ParallelAgent(Agent[T, U]):
     async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[U]:
         queue: asyncio.Queue[U | None | Exception] = asyncio.Queue()
         tasks = []
+
         async def worker(elem: T):
             async with self.semaphore:
                 try:
@@ -362,7 +370,9 @@ class ParallelAgent(Agent[T, U]):
                     async for output in self.agent.process_once(elem):
                         await queue.put(output)
                 except Exception as e:
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Exception from agent {self.agent.name}: {e}")
+                    print(
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Exception from agent {self.agent.name}: {e}"
+                    )
                     # await queue.put(e)  # Put exception into queue to propagate
                     # raise e
 
@@ -373,7 +383,9 @@ class ParallelAgent(Agent[T, U]):
                     task = asyncio.create_task(worker(elem))
                     tasks.append(task)
             except Exception as e:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Exception from producer of {self.name}: {e}")
+                print(
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Exception from producer of {self.name}: {e}"
+                )
                 # await queue.put(e)
             finally:
                 await asyncio.gather(*tasks, return_exceptions=True)
@@ -389,13 +401,17 @@ class ParallelAgent(Agent[T, U]):
                 if output is None:
                     break
                 if isinstance(output, Exception):
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Skipping error - exception from {self.agent.name}: {output}")
+                    print(
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Skipping error - exception from {self.agent.name}: {output}"
+                    )
                     continue
                     # await producer_task
                     # raise output
                 yield output
             except Exception as e:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in queue processing {str(e)}")
+                print(
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in queue processing {str(e)}"
+                )
                 continue
                 # raise e
 
@@ -486,53 +502,42 @@ class CacheAgentBase(Generic[Input, Output]):
     Base class that handles caching logic for agents.
     """
 
-    def __init__(self, filename: str, batch_size: int = 10):
-        self.filename = filename
+    def __init__(self, directory: str, batch_size: int = 10):
+        self.filename = directory
         self.batch_size = batch_size
-        self.pending_writes = 0
-        self.cache: Dict[str, Any] = {}
-        self._load_cache()
-
-    def _load_cache(self):
-        if os.path.exists(self.filename):
-            with open(self.filename, "r") as f:
-                self.cache = json.load(f)
-        else:
-            self.cache = {}
-
-    def _save_cache(self):
-        # Write cache to a temporary file first
+        self.pending_writes: List[Tuple[Input, Any]] = []
+        # Ensure the directory exists
         dir_name = os.path.dirname(self.filename) or "."
-        with tempfile.NamedTemporaryFile(
-            "w", dir=dir_name, delete=False, encoding="utf-8"
-        ) as tmp_file:
-            json.dump(self.cache, tmp_file)
-            temp_name = tmp_file.name
-        # Atomically replace the original file with the new one
-        os.replace(temp_name, self.filename)
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
+        # Initialize the Diskcache cache
+        self.cache = diskcache.Cache(self.filename)
 
     def get_cached_output(self, input: Input) -> Optional[Any]:
-        input_key = json.dumps(input, default=str)
-        return self.cache.get(input_key)
+        return self.cache.get(input)
 
     def set_cached_output(self, input: Input, output: Any):
-        input_key = json.dumps(input, default=str)
-        self.cache[input_key] = output
-        self.pending_writes += 1
-        if self.pending_writes >= self.batch_size:
-            start_time=time.time()
-            # print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Saving cache to {self.filename}")
-            self._save_cache()
-            end_time=time.time()
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Time taken to save cache: {end_time-start_time} for {self.filename}")
-            self.pending_writes = 0
+        self.pending_writes.append((input, output))
+        if len(self.pending_writes) >= self.batch_size:
+            start_time = time.time()
+            # Write all pending items to cache
+            for cached_input, cached_output in self.pending_writes:
+                self.cache[cached_input] = cached_output
+            end_time = time.time()
+            print(
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Time taken to write {len(self.pending_writes)} items to cache: {end_time-start_time} for {self.filename}"
+            )
+            self.pending_writes = []
+
 
 class CacheStatelessAgent(StatelessAgent[Input, Output]):
     """
     Caching agent for StatelessAgents.
     """
 
-    def __init__(self, agent: StatelessAgent[Input, Output], filename: str, batch_size: int = 10):
+    def __init__(
+        self, agent: StatelessAgent[Input, Output], filename: str, batch_size: int = 10
+    ):
         super().__init__(name=f"Cache")
         self.agent = agent
         self.cache_base = CacheAgentBase[Input, Any](filename, batch_size)
@@ -567,7 +572,9 @@ class CacheMapAgent(MapAgent[Input, Output]):
     Caching agent for MapAgents.
     """
 
-    def __init__(self, agent: MapAgent[Input, Output], filename: str, batch_size: int = 10):
+    def __init__(
+        self, agent: MapAgent[Input, Output], filename: str, batch_size: int = 10
+    ):
         super().__init__(name=f"Cache")
         self.agent = agent
         self.cache_base = CacheAgentBase[Input, Output](filename, batch_size)
