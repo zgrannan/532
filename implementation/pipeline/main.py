@@ -79,7 +79,7 @@ REFINED_QUESTIONS_PROMPT = """
     Return a list of new questions in JSON format.
 """
 
-DEFAULT_REFINE_QUESTIONS_MODEL = "meta-llama-3.1-8b-instruct"
+DEFAULT_REFINE_QUESTIONS_MODEL = "qwen/qwen2.5-7b-instruct"
 
 
 class RefinedQuestionsModel(BaseModel):
@@ -253,6 +253,7 @@ async def generate_finetune_entries_for_files_in_directory(
     question_batch_size = 10
     # model = "meta-llama-3.1-8b-instruct-q6_k"
     model = "lmstudio-community/qwen2.5-7b-instruct"
+    # model = "phi-3.5-mini-instruct"
     embeddings_func = OpenAIEmbeddings(
         model=EMBEDDING_MODEL,
         base_url="http://localhost:1234/v1",
@@ -387,7 +388,7 @@ class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
                         },
                     ],
                 )
-                yield input  # Also return original entry
+                yield input  # Also return original entry -> maybe this is generating duplicate entry?
                 yield {**input, "answer": resp}
             except Exception as e:
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error generating RAG answer: {e}")

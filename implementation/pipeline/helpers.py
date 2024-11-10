@@ -10,7 +10,7 @@ from langchain_text_splitters import TokenTextSplitter
 import os
 import time
 from langchain_openai import OpenAIEmbeddings
-from token_tracking import track_llm_usage
+from .token_tracking import track_llm_usage
 
 LM_STUDIO_BASE_URL = "http://localhost:1234/v1"
 logging.basicConfig(level=logging.INFO)
