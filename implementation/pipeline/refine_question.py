@@ -73,14 +73,16 @@ class RefineQuestionsAgent(
                     "question": question,
                 }
 
-
+# Moved to question_answer.py
 FURTHER_QUESTIONS_PROMPT = """
-Given a list of example questions about a document, create a new set of diverse questions that maintain alignment with the themes, styles, and types of inquiries shown in the examples. Ensure that the new questions:
+Given a list of example questions about a document, create a new set of diverse questions that maintain alignment with the themes, styles, and types of inquiries shown in the examples. 
 
-Cover a variety of topics and perspectives introduced by the examples.
-Vary in structure (e.g., open-ended and factual).
-Introduce new angles or aspects of inquiry that remain relevant to the document's subject.
-Focus on generating questions that invite deeper analysis, provide context, and encourage a comprehensive understanding of the document content
+Ensure that the new questions:
+
+- Cover a variety of topics and perspectives introduced by the examples.
+- Vary in structure (e.g., open-ended and factual).
+- Introduce new angles or aspects of inquiry that remain relevant to the document's subject.
+- Focus on generating questions that promotes deeper analysis, provide context, and encourage a comprehensive understanding of the document content
     
 Return at most 10 new questions. 
 

@@ -91,6 +91,25 @@ Your goal is to generate high-quality, detailed answers by following these instr
 {text}
 """
 
+FURTHER_QUESTIONS_PROMPT = """
+Given a list of example questions about a document, create a new set of diverse questions that maintain alignment with the themes, styles, and types of inquiries shown in the examples. 
+
+Ensure that the new questions:
+
+- Cover a variety of topics and perspectives introduced by the examples.
+- Vary in structure (e.g., open-ended and factual).
+- Introduce new angles or aspects of inquiry that remain relevant to the document's subject.
+- Focus on generating questions that promotes deeper analysis, provide context, and encourage a comprehensive understanding of the document content
+
+Return at most 10 new questions. 
+
+Questions:
+{question}
+
+
+Return a list of new questions in JSON format.
+"""
+
 from typing import TypedDict
 
 
@@ -127,17 +146,29 @@ class QuestionGenerator(
             source_type=source_type,
         )
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of qa_prompt: {len(qa_prompt)}")
-        return (
-            await get_json_response_async(
-                client=self.client,
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": qa_prompt},
-                ],
-                response_format=QuestionAnswerModel,
-                agent_name=self.name,
-            )
-        ).questions
+
+        init_questions =  await get_json_response_async(
+                                                        client=self.client,
+                                                        model=self.model,
+                                                        messages=[
+                                                            {"role": "system", "content": qa_prompt},
+                                                        ],
+                                                        response_format=QuestionAnswerModel,
+                                                        agent_name=f"Initial {self.name}",
+                                                    )
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of init_questions: {len(init_questions.questions)}")
+        additional_question_prompt = FURTHER_QUESTIONS_PROMPT.format(question="\n".join([q for q in init_questions.questions]))
+        additional_questions = await get_json_response_async(
+                                                        client=self.client,
+                                                        model=self.model,
+                                                        messages=[
+                                                            {"role": "system", "content": additional_question_prompt},
+                                                        ],
+                                                        response_format=QuestionAnswerModel,
+                                                        agent_name=f"Secondary {self.name}",
+                                                    )
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of additional_questions: {len(additional_questions.questions)}")
+        return init_questions.questions + additional_questions.questions
 
 class QAPair(TypedDict):
     question: str
