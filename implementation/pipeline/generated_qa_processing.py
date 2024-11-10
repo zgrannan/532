@@ -1,4 +1,4 @@
-from agent import Agent, MapAgent
+from agent import Agent, MapAgent, StatelessAgent, OpenAIAgent
 from pipeline_types import (
     FinetuneEntry,
     EnrichedPdfChunkWithQuestion,
@@ -7,8 +7,9 @@ from typing import AsyncIterator
 from langchain_openai import OpenAIEmbeddings
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from helpers import slurp_iterator
+from helpers import slurp_iterator, get_json_response_async
 from datetime import datetime
+from pydantic import BaseModel
 
 class RemoveDuplicateQuestionsAgent(
     Agent[EnrichedPdfChunkWithQuestion, EnrichedPdfChunkWithQuestion]
@@ -29,7 +30,6 @@ class EmbeddingsAgent(MapAgent[str, list[float]]):
 
     async def handle(self, input: str) -> list[float]:
         return await self.embeddings_func.aembed_query(input)
-    
 
 class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
     def __init__(self, embeddings_func: OpenAIEmbeddings, threshold: float):
@@ -72,3 +72,79 @@ class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
 
         for item in filtered_data:
             yield item
+
+SOURCE_IN_QUESTION_PROMPT = """
+Analyze questions and ensure proper source attribution by following these rules:
+
+# Inputs
+
+Question
+Source
+Source Type (paper, book, article, webpage)
+
+# Instructions
+
+If source exists in question: Return original
+If source missing: Add source using appropriate format:
+
+Paper/Article: "...in 'Title'..."
+Book: "...in Book Title..."
+Website: "...on Website Name..."
+
+# Source Placement
+
+Insert where most natural
+Avoid disrupting technical terms
+Maintain grammar and readability
+Use abbreviated forms for repeated mentions
+
+Return the original or modified question.
+Remember to integrate the source into the question in a natural way and to return a question.
+
+Question:
+{question}
+
+Source:
+{source}
+
+Source Type:
+{source_type}
+"""
+
+class SourceInQuestion(BaseModel):
+    question: str 
+
+class AddSourceToQuestionAgent(OpenAIAgent,
+                               StatelessAgent[FinetuneEntry, FinetuneEntry]):
+    def __init__(self, model: str):
+        super().__init__(model)
+        StatelessAgent.__init__(self, name="Add Source to Question Agent")
+
+
+    async def process_element(
+        self, input: FinetuneEntry
+    ) -> AsyncIterator[FinetuneEntry]:
+        
+        # async for input in inputs:
+        resp = await get_json_response_async(
+            client=self.client,
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": SOURCE_IN_QUESTION_PROMPT.format(
+                        question=input["question"],
+                        source=input["source"],
+                        source_type=input["source_type"],
+                    ),
+                },
+            ],
+            response_format=SourceInQuestion,
+            agent_name=self.name,
+        )
+        print(f"Original Question: {input['question']}")
+        print(f"Modified Question: {resp.question}")
+        yield {
+            **input,
+            "question": resp.question
+        }

@@ -31,7 +31,7 @@ from pipeline_types import FinetuneEntry
 from token_tracking import tracker
 from utils import EnrichPdfFileAgent
 from chunking import EmbedChunksAgent, ChunkTextAgent
-from generated_qa_processing import RemoveSimilarQuestionsAgent
+from generated_qa_processing import RemoveSimilarQuestionsAgent, AddSourceToQuestionAgent
 from refine_question import RefineQuestionsAgent
 from rag_answer import GetRAGAnswerAgent
 from pydantic import BaseModel
@@ -76,18 +76,19 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             f"cache/{config.config_name}_enrich_pdf_cache.json", batch_size=1
         )
         .and_then(ChunkTextAgent(config.document_chunk_size, config.document_chunk_overlap))
-        .chunk(10)  # We embed 10 text chunks at a time
+        .chunk(20)  # We embed 10 text chunks at a time
         .and_then(UnchunkingAgent())  # Undo the previous chunking
         .fan_out(
-            10,
+            20,
             QuestionGenerator(config.llm_model, 10).with_cache(
                 filename=f"cache/{config.config_name}_question_generator_cache.json",
                 batch_size=10,
             ),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
+        .and_then(AddSourceToQuestionAgent(config.llm_model))
         .fan_out(
-            10,
+            20,
             EnrichAgent(
                 GetAnswerAgent(config.llm_model).with_cache(
                     filename=f"cache/{config.config_name}_get_answer_cache.json", batch_size=10
@@ -104,13 +105,14 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             ),
         )
         .fan_out(
-            10,
-            RefineQuestionsAgent(sampling_percent=0.5).with_cache(
+            20,
+            RefineQuestionsAgent(sampling_percent=0.7).with_cache(
                 f"cache/{config.config_name}_refine_question_cache.json", batch_size=10
             ),
         )
-        .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.8))
-        .fan_out(10, GetRAGAnswerAgent(config.llm_model, config.vector_store))
+        .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
+        .and_then(AddSourceToQuestionAgent(config.llm_model))
+        .fan_out(20, GetRAGAnswerAgent(config.llm_model, config.vector_store))
     )
 
 async def generate_finetune_entries_for_files_in_directory(
