@@ -60,34 +60,37 @@ class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
         # Get docs from vector store
         async for input in inputs:
             try:
-                print(
-                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Searching filter=filename: {input['source']}"
-                )
-                docs = await self.vector_store.asimilarity_search(
-                    query=input["question"],
-                    k=self.k,
-                    filter={"filename": input["source"]},
-                )
-                docs_str = "\n".join([r.page_content for r in docs])
-                print(
-                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating RAG answer for Question: {input['question']}"
-                )
-                resp = await self.messages_agent.handle(
-                    [
-                        {
-                            "role": "system",
-                            "content": REFINED_RAG_ANSWER_PROMPT.format(
-                                question=input["question"],
-                                answer=input["answer"],
-                                docs=docs_str,
-                            ),
-                        },
-                    ],
-                )
-                yield input  # Also return original entry
-                yield {**input, "answer": resp}
+                if isinstance(input, dict) and "pass_through" in input and input["pass_through"]:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Pass through: {input['question']}")
+                    yield input # Pass through the original question answer pair
+                    continue
+                else:
+                    print(
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Searching filter=filename: {input['source']}"
+                    )
+                    docs = await self.vector_store.asimilarity_search(
+                        query=input["question"],
+                        k=self.k,
+                        filter={"filename": input["source"]},
+                    )
+                    docs_str = "\n".join([r.page_content for r in docs])
+                    print(
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating RAG answer for Question: {input['question']}"
+                    )
+                    resp = await self.messages_agent.handle(
+                        [
+                            {
+                                "role": "system",
+                                "content": REFINED_RAG_ANSWER_PROMPT.format(
+                                    question=input["question"],
+                                    answer=input["answer"],
+                                    docs=docs_str,
+                                ),
+                            },
+                        ],
+                    )
+                    yield {**input, "answer": resp}
             except Exception as e:
                 print(
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error generating RAG answer: {e}"
                 )
-                yield input  # Return original entry if error occurs

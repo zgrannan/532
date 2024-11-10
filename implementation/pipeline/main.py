@@ -218,18 +218,18 @@ async def main():
     df = pd.DataFrame(finetune_entries_filtered)
     
     # if outputs folder doesn't exist, create it
-    # if not os.path.exists("outputs"):
-    #     os.makedirs("outputs")
-    # df.to_csv(f"outputs/{config_name}_output.csv", index=False)
+    if not os.path.exists("outputs"):
+        os.makedirs("outputs")
+    df.to_csv(f"outputs/{config_name}_output.csv", index=False)
 
-    # # Upload to Huggingface
-    # qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)
-    # upload_to_hf(
-    #     data=qa_pairs_dict,
-    #     repo_id=repo_id,
-    #     api_key=os.getenv("HUGGINGFACE_API_KEY"),
-    #     config_name=config_name,
-    # )
+    # Upload to Huggingface
+    qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)
+    upload_to_hf(
+        data=qa_pairs_dict,
+        repo_id=repo_id,
+        api_key=os.getenv("HUGGINGFACE_API_KEY"),
+        config_name=config_name,
+    )
 
     end_time = time.time()
     print(
