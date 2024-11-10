@@ -1,4 +1,4 @@
-from agent import StatelessAgent, OpenAIAgent, get_json_response_async
+from agent import StatelessAgent, OpenAIAgent
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document

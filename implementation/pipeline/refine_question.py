@@ -2,9 +2,9 @@ from typing import List, AsyncIterator
 from pydantic import BaseModel
 from datetime import datetime
 import random 
-from agent import StatelessAgent, OpenAIAgent, get_json_response_async
+from agent import StatelessAgent, OpenAIAgent
 from pipeline_types import FinetuneEntry
-
+from helpers import get_json_response_async
 
 DEFAULT_REFINE_QUESTIONS_MODEL = "meta-llama-3.1-8b-instruct"
 

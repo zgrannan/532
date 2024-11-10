@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from uuid import uuid4
 from datetime import datetime
-from typing import TypeVar, List
+from typing import TypeVar, List, Any
 from dotenv import find_dotenv, load_dotenv
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
@@ -31,90 +31,66 @@ from pipeline_types import FinetuneEntry
 from token_tracking import tracker
 from utils import EnrichPdfFileAgent
 from chunking import EmbedChunksAgent, ChunkTextAgent
-from generated_qa_processing import (
-    RemoveSimilarQuestionsAgent,
-    GetRAGAnswerAgent,
-    RefineQuestionsAgent,
-)
+from generated_qa_processing import RemoveSimilarQuestionsAgent
+from refine_question import RefineQuestionsAgent
+from rag_answer import GetRAGAnswerAgent
+from pydantic import BaseModel
+from pathlib import Path
 
 load_dotenv(find_dotenv())
 
-T = TypeVar("T")
-U = TypeVar("U")
-V = TypeVar("V")
+class PipelineConfig(BaseModel):
+    document_chunk_size: int = 5000
+    document_chunk_overlap: int = 100 
+    rag_chunk_size: int = 500 
+    rag_chunk_overlap: int = 100
+    batch_size: int = 10
+    llm_model: str 
+    embedding_model: str = "text-embedding-nomic-embed-text-v1.5@f32"
+    vector_store: Chroma
+    embedding_function: OpenAIEmbeddings
+    config_name: str
 
+    class Config:
+        arbitrary_types_allowed = True
 
-async def generate_finetune_entries_for_files_in_directory(
-    directory: str,
-    config_name: str,
-) -> List[FinetuneEntry]:
-    pdf_files = [
-        os.path.join(directory, filename)
-        for filename in os.listdir(directory)
-        if filename.endswith(".pdf")
-    ]
-
-    for file in pdf_files:
-        print(
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing file: {file}"
+def create_embedding_pipeline(config: PipelineConfig) -> Any:
+    """Pipeline for embedding documents"""
+    return (
+        EnrichPdfFileAgent().with_cache(
+            f"cache/{config.config_name}_enrich_pdf_cache.json", batch_size=1
         )
-
-    EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"  # on LM Studio
-    chunk_size = 5000
-    chunk_overlap = 100
-    entity_batch_size = 10
-    question_batch_size = 10
-    # model = "meta-llama-3.1-8b-instruct-q6_k"
-    model = "lmstudio-community/qwen2.5-7b-instruct"
-    embeddings_func = OpenAIEmbeddings(
-        model=EMBEDDING_MODEL,
-        base_url="http://localhost:1234/v1",
-        api_key="test",
-        check_embedding_ctx_length=False,  # https://github.com/langchain-ai/langchain/issues/21318
-    )
-
-    vector_store = Chroma(
-        collection_name=config_name,  # Config name,
-        embedding_function=embeddings_func,
-        persist_directory="./chroma_langchain_db",
-    )
-
-    enrich_pdf_agent = EnrichPdfFileAgent().with_cache(
-        f"cache/{config_name}_enrich_pdf_cache.json", batch_size=1
-    )
-
-    # Chunking and embedding into vectordb are using different chunking parameters than first stage
-    granular_chunking_pipeline = (
-        enrich_pdf_agent
-        .and_then(EmbedChunksAgent(embeddings_func, vector_store, 500, 150))
+        .and_then(EmbedChunksAgent(
+            config.embedding_function,
+            config.vector_store,
+            config.rag_chunk_size,
+            config.rag_chunk_overlap
+        ))
         .chunk(10)
     )
-    print(
-        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting to chunk and embed into vectordb"
-    )
-    res = await slurp_iterator(granular_chunking_pipeline.process_list(pdf_files))
-    print(
-        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating finetune entries"
-    )
 
-    pipeline = (
-        enrich_pdf_agent
-        .and_then(ChunkTextAgent(chunk_size, chunk_overlap))
+def create_qa_pipeline(config: PipelineConfig) -> Any:
+    """Main Pipeline for generating Q/A pairs"""
+    return (
+        EnrichPdfFileAgent().with_cache(
+            f"cache/{config.config_name}_enrich_pdf_cache.json", batch_size=1
+        )
+        .and_then(ChunkTextAgent(config.document_chunk_size, config.document_chunk_overlap))
         .chunk(10)  # We embed 10 text chunks at a time
         .and_then(UnchunkingAgent())  # Undo the previous chunking
         .fan_out(
             10,
-            QuestionGenerator(model, question_batch_size).with_cache(
-                filename=f"cache/{config_name}_question_generator_cache.json",
+            QuestionGenerator(config.llm_model, 10).with_cache(
+                filename=f"cache/{config.config_name}_question_generator_cache.json",
                 batch_size=10,
             ),
         )
-        .and_then(RemoveSimilarQuestionsAgent(embeddings_func, 0.9))
+        .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
         .fan_out(
             10,
             EnrichAgent(
-                GetAnswerAgent(model).with_cache(
-                    filename=f"cache/{config_name}_get_answer_cache.json", batch_size=10
+                GetAnswerAgent(config.llm_model).with_cache(
+                    filename=f"cache/{config.config_name}_get_answer_cache.json", batch_size=10
                 ),
                 lambda e: QuestionWithChunk(question=e["question"], chunk=e["chunk"]),
                 lambda e, answer: FinetuneEntry(
@@ -130,22 +106,42 @@ async def generate_finetune_entries_for_files_in_directory(
         .fan_out(
             10,
             RefineQuestionsAgent(sampling_percent=0.5).with_cache(
-                f"cache/{config_name}_refine_question_cache.json", batch_size=10
+                f"cache/{config.config_name}_refine_question_cache.json", batch_size=10
             ),
         )
-        .and_then(RemoveSimilarQuestionsAgent(embeddings_func, 0.8))
-        .fan_out(10, GetRAGAnswerAgent(model, vector_store))
+        .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.8))
+        .fan_out(10, GetRAGAnswerAgent(config.llm_model, config.vector_store))
     )
-    print(pipeline.to_dot())
 
-    return await slurp_iterator(pipeline.process_list(pdf_files))
+async def generate_finetune_entries_for_files_in_directory(
+        config: PipelineConfig,
+        directory: str,
+) -> List[FinetuneEntry]:
+    pdf_files = [
+        os.path.join(directory, f) 
+        for f in os.listdir(directory) 
+        if f.endswith(".pdf")
+    ]
+
+    # Get pipelines
+    embedding_pipeline = create_embedding_pipeline(config)
+    qa_pipeline = create_qa_pipeline(config)
+
+    # run pipelines
+    print(
+        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting to chunk and embed into vectordb"
+    )
+    res = await slurp_iterator(embedding_pipeline.process_list(pdf_files))
+    
+    print(
+        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting to run qa pipeline"
+    )
+    return await slurp_iterator(qa_pipeline.process_list(pdf_files))
 
 async def main():
     start_time = time.time()
 
-    # Hugging Face
-    repo_id = "CPSC532/arxiv_qa_data"
-
+    # parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config_name",
@@ -153,15 +149,56 @@ async def main():
         default=datetime.now().strftime("%Y%m%d%H%M%S"),
         help="Name of the config to use (default: timestamp)",
     )
+    parser.add_argument(
+        "--file_path",
+        type=str,
+        default="../data",
+        help="Path to the directory containing PDF files (default: ../data)",
+    )
     args = parser.parse_args()
     config_name = args.config_name
+    file_path = args.file_path
 
-    # asyncio.create_task(tracker.periodic_save("test_periodic_save", interval=5))
+    # INPUTS
+    EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"  # on LM Studio
+    LLM_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
+
+    # Hugging Face
+    repo_id = "CPSC532/arxiv_qa_data"
+
+    embedding_function= OpenAIEmbeddings(
+            model=EMBEDDING_MODEL,
+            base_url="http://localhost:1234/v1",
+            api_key="test",
+            check_embedding_ctx_length=False,
+        )
+    
+    vector_store = Chroma(
+        collection_name=config_name,
+        embedding_function=embedding_function,
+        persist_directory="./chroma_langchain_db",
+    )
+
+    pipeline_config = PipelineConfig(
+                                    document_chunk_size = 5000,
+                                    document_chunk_overlap= 100 ,
+                                    rag_chunk_size = 500 ,
+                                    rag_chunk_overlap = 100,
+                                    batch_size = 10,
+                                    llm_model = LLM_MODEL ,
+                                    embedding_model = EMBEDDING_MODEL,
+                                    vector_store = vector_store,
+                                    embedding_function = embedding_function,
+                                    config_name = config_name
+                            )
+    
+
 
     # First stage getting initial Q/A Pairs
     finetune_entries = await generate_finetune_entries_for_files_in_directory(
-        "../data", config_name
+        pipeline_config, file_path
     )
+
     print(
         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generated {len(finetune_entries)} finetune entries"
     )
@@ -177,20 +214,22 @@ async def main():
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error filtering entry: {e}"
                 )
                 continue
-    df = pd.DataFrame(finetune_entries_filtered)
-    # if outputs folder doesn't exist, create it
-    if not os.path.exists("outputs"):
-        os.makedirs("outputs")
-    df.to_csv(f"outputs/{config_name}_output.csv", index=False)
 
-    # Upload to Huggingface
-    qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)
-    upload_to_hf(
-        data=qa_pairs_dict,
-        repo_id=repo_id,
-        api_key=os.getenv("HUGGINGFACE_API_KEY"),
-        config_name=config_name,
-    )
+    df = pd.DataFrame(finetune_entries_filtered)
+    
+    # if outputs folder doesn't exist, create it
+    # if not os.path.exists("outputs"):
+    #     os.makedirs("outputs")
+    # df.to_csv(f"outputs/{config_name}_output.csv", index=False)
+
+    # # Upload to Huggingface
+    # qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)
+    # upload_to_hf(
+    #     data=qa_pairs_dict,
+    #     repo_id=repo_id,
+    #     api_key=os.getenv("HUGGINGFACE_API_KEY"),
+    #     config_name=config_name,
+    # )
 
     end_time = time.time()
     print(
