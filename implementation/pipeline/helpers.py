@@ -4,7 +4,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_l
 from openai import NotGiven, OpenAI, AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, SecretStr
-from typing import Any, AsyncGenerator, Dict, List, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Dict, List, TypeVar, Union, cast, AsyncIterator
 from datasets import Dataset # type: ignore
 from langchain_text_splitters import TokenTextSplitter
 import os
@@ -224,3 +224,12 @@ def get_embedding_func(embedding_model) -> OpenAIEmbeddings:
                             api_key = cast(SecretStr, os.getenv("LLM_CLIENT_API_KEY", "lm_studio")),
                             check_embedding_ctx_length=False # https://github.com/langchain-ai/langchain/issues/21318
                         )
+
+async def slurp_iterator(generator: AsyncIterator[T]) -> List[T]:
+    buffer = []
+    try:
+        async for item in generator:
+            buffer.append(item)
+        return buffer
+    except Exception as e:
+        raise e  # Could write buffer to file here
