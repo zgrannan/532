@@ -6,8 +6,6 @@ from agent import StatelessAgent, OpenAIAgent
 from pipeline_types import FinetuneEntry, EnrichedPdfChunkWithQuestion
 from helpers import get_json_response_async
 
-DEFAULT_REFINE_QUESTIONS_MODEL = "meta-llama-3.1-8b-instruct"
-
 REFINED_QUESTIONS_PROMPT = """
     You are provided with a question and an answer.
     Your job is to generate a set of new questions that can be answered with the given answer but is diverse and approaches
@@ -28,14 +26,12 @@ class RefinedQuestionsModel(BaseModel):
     questions: List[str]
 
 
-
-
 class RefineQuestionsAgent(
     OpenAIAgent,
     StatelessAgent[FinetuneEntry, FinetuneEntry],
 ):
-    def __init__(self, sampling_percent: float = 0.1):
-        super().__init__(DEFAULT_REFINE_QUESTIONS_MODEL)
+    def __init__(self, model: str, sampling_percent: float = 0.1, model_provider: str = "LMStudio"):
+        super().__init__(model=model, model_provider=model_provider)
         StatelessAgent.__init__(self, name="Refine Questions Agent")
         self.sampling_percent = sampling_percent
 
@@ -45,6 +41,13 @@ class RefineQuestionsAgent(
         print(
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating refined question for Question: {input['question']}"
         )
+        if self.model_provider == "LMStudio":
+            response_format = RefinedQuestionsModel
+        else:
+            response_format = {
+                "type": "json_object", 
+                "schema": RefinedQuestionsModel.model_json_schema(),
+            }
         resp = await get_json_response_async(
             client=self.client,
             model=self.model,
@@ -57,7 +60,7 @@ class RefineQuestionsAgent(
                     ),
                 },
             ],
-            response_format=RefinedQuestionsModel,
+            response_format=response_format,
             agent_name=self.name,
         )
         yield { # Also return the original question, since we are trying to 'pass through' original q/a pair, we need to pass through this as well in GetRAGAnswerAgent
@@ -98,8 +101,8 @@ class RefineQuestionsAgentInit(
     OpenAIAgent,
     StatelessAgent[EnrichedPdfChunkWithQuestion, EnrichedPdfChunkWithQuestion],
 ):
-    def __init__(self, sampling_percent: float = 0.1):
-        super().__init__(DEFAULT_REFINE_QUESTIONS_MODEL)
+    def __init__(self, model: str, sampling_percent: float = 0.1, model_provider: str = "LMStudio"):
+        super().__init__(model=model , model_provider=model_provider)
         StatelessAgent.__init__(self, name="Refine Questions Agent")
         self.sampling_percent = sampling_percent
 
@@ -109,6 +112,13 @@ class RefineQuestionsAgentInit(
         print(
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating refined question for Question: {input['question']}"
         )
+        if self.model_provider == "LMStudio":
+            response_format = RefinedQuestionsModel
+        else:
+            response_format = {
+                "type": "json_object", 
+                "schema": RefinedQuestionsModel.model_json_schema(),
+            }
         resp = await get_json_response_async(
             client=self.client,
             model=self.model,
@@ -120,7 +130,7 @@ class RefineQuestionsAgentInit(
                     ),
                 },
             ],
-            response_format=RefinedQuestionsModel,
+            response_format=response_format,
             agent_name=self.name,
         )
         yield input  # Also return the original question

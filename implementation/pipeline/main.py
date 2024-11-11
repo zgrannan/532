@@ -36,6 +36,7 @@ from refine_question import RefineQuestionsAgent
 from rag_answer import GetRAGAnswerAgent
 from pydantic import BaseModel
 from pathlib import Path
+from typing import Literal
 
 load_dotenv(find_dotenv())
 
@@ -50,7 +51,7 @@ class PipelineConfig(BaseModel):
     vector_store: Chroma
     embedding_function: OpenAIEmbeddings
     config_name: str
-
+    model_provider: Literal['LMStudio', 'TogetherAI', 'FireworksAI'] = 'LMStudio'
     class Config:
         arbitrary_types_allowed = True
 
@@ -80,17 +81,17 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
         .and_then(UnchunkingAgent())  # Undo the previous chunking
         .fan_out(
             20,
-            QuestionGenerator(config.llm_model, 10).with_cache(
+            QuestionGenerator(config.llm_model, 10,  config.model_provider).with_cache(
                 filename=f"cache/{config.config_name}_question_generator_cache.json",
                 batch_size=10,
             ),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .and_then(AddSourceToQuestionAgent(config.llm_model))
+        .and_then(AddSourceToQuestionAgent(config.llm_model,  config.model_provider))
         .fan_out(
             20,
             EnrichAgent(
-                GetAnswerAgent(config.llm_model).with_cache(
+                GetAnswerAgent(config.llm_model,  config.model_provider).with_cache(
                     filename=f"cache/{config.config_name}_get_answer_cache.json", batch_size=10
                 ),
                 lambda e: QuestionWithChunk(question=e["question"], chunk=e["chunk"]),
@@ -106,12 +107,14 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
         )
         .fan_out(
             20,
-            RefineQuestionsAgent(sampling_percent=0.7).with_cache(
+            RefineQuestionsAgent(model=config.llm_model,
+                                 sampling_percent=0.7,
+                                 model_provider=config.model_provider).with_cache(
                 f"cache/{config.config_name}_refine_question_cache.json", batch_size=10
             ),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .and_then(AddSourceToQuestionAgent(config.llm_model))
+        .and_then(AddSourceToQuestionAgent(config.llm_model, config.model_provider))
         .fan_out(20, GetRAGAnswerAgent(config.llm_model, config.vector_store))
     )
 
@@ -164,7 +167,8 @@ async def main():
     # INPUTS
     EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"  # on LM Studio
     LLM_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
-
+    # LLM_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" # Together.ai
+    # LLM_MODEL = "accounts/fireworks/models/llama-v3p1-8b-instruct" # fireworks
     # Hugging Face
     repo_id = "CPSC532/arxiv_qa_data"
 
@@ -191,7 +195,8 @@ async def main():
                                     embedding_model = EMBEDDING_MODEL,
                                     vector_store = vector_store,
                                     embedding_function = embedding_function,
-                                    config_name = config_name
+                                    config_name = config_name,
+                                    model_provider='LMStudio'
                             )
     
 

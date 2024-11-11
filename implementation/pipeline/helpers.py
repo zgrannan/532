@@ -39,6 +39,7 @@ def get_json_response(
                     response_format: type[BaseModel],
                     temperature: float = 0.0,
                     agent_name: str = "", # for track_llm_usage
+                    max_tokens: int = 32000,
                     **kwargs: dict,
                 ) -> BaseModel:
 
@@ -47,6 +48,7 @@ def get_json_response(
         model=model,
         temperature=temperature,
         response_format=response_format,
+        max_tokens=max_tokens,
         **kwargs
     )
 
@@ -67,6 +69,7 @@ async def get_json_response_async(
                     response_format: type[T],
                     temperature: float = 0.0,
                     agent_name: str = "", # for track_llm_usage
+                    max_tokens: int = 32000,
                     **kwargs: dict,
                     ) -> T:
     response = await client.beta.chat.completions.parse(
@@ -74,6 +77,7 @@ async def get_json_response_async(
         model=model,
         temperature=temperature,
         response_format=response_format,
+        max_tokens=max_tokens,
         **kwargs
     )
 
@@ -91,12 +95,14 @@ def get_messages_response(
                     messages: List[ChatCompletionMessageParam],
                     temperature: float = 0.0,
                     agent_name: str = "", # for track_llm_usage
+                    max_tokens: int = 32000,
                     **kwargs: dict,
                     ) -> str:
     response = client.chat.completions.create(
         messages = messages,
         model = model,
         temperature = temperature,
+        max_tokens=max_tokens,
         **kwargs
     )
 
@@ -114,12 +120,14 @@ async def get_messages_response_async(
                     messages: List[ChatCompletionMessageParam],
                     temperature: float = 0.0,
                     agent_name: str = "", # for track_llm_usage
+                    max_tokens: int = 32000,
                     **kwargs: dict,
                     ) -> str:
     response = await client.chat.completions.create(
         messages = messages,
         model = model,
         temperature = temperature,
+        max_tokens=max_tokens,
         **kwargs
     )
 

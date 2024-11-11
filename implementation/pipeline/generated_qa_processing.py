@@ -116,15 +116,21 @@ class SourceInQuestion(BaseModel):
 
 class AddSourceToQuestionAgent(OpenAIAgent,
                                StatelessAgent[FinetuneEntry, FinetuneEntry]):
-    def __init__(self, model: str):
-        super().__init__(model)
+    def __init__(self, model: str, model_provider: str = "LMStudio"):
+        super().__init__(model=model, model_provider=model_provider)
         StatelessAgent.__init__(self, name="Add Source to Question Agent")
 
 
     async def process_element(
         self, input: FinetuneEntry
     ) -> AsyncIterator[FinetuneEntry]:
-        
+        if self.model_provider == "LMStudio":
+            response_format = SourceInQuestion
+        else:
+            response_format = {
+                "type": "json_object",
+                "schema" : SourceInQuestion.model_json_schema()
+            }
         # async for input in inputs:
         resp = await get_json_response_async(
             client=self.client,
@@ -139,7 +145,7 @@ class AddSourceToQuestionAgent(OpenAIAgent,
                     ),
                 },
             ],
-            response_format=SourceInQuestion,
+            response_format=response_format,
             agent_name=self.name,
         )
         print(f"Original Question: {input['question']}")
