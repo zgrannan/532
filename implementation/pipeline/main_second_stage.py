@@ -1,4 +1,5 @@
 # Second stage refining Q/A Pairs and getting answers from chunk + RAG 
+# Not used, logic has been combined into main.py
 import PyPDF2
 import asyncio
 from openai import OpenAI, AsyncOpenAI

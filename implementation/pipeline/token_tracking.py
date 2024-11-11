@@ -70,9 +70,20 @@ def track_llm_usage(func):
             return result
         else:
             if isinstance(result, ParsedChatCompletion):
+                # For TogetherAI and Fireworks, the parsed JSON is in message.content
                 output_resp = result.choices[0].message.parsed
+                if not output_resp:
+                    output_resp = result.choices[0].message.content
             elif isinstance(result, ChatCompletion):
                 output_resp = result.choices[0].message.content
+
+        if isinstance(result, ParsedChatCompletion):
+            if isinstance(output_resp, str):
+                response = json.loads(output_resp)
+            else:
+                response = output_resp.model_dump()
+        else:
+            response = output_resp
                 
         usage: TokenUsage = {
             'timestamp': datetime.now().isoformat(),
@@ -80,7 +91,7 @@ def track_llm_usage(func):
             'operation': 'llm',
             'model': result.model,
             'messages': kwargs.get('messages', kwargs.get('input', [])),
-            'response': output_resp.model_dump() if isinstance(result, ParsedChatCompletion) else output_resp,
+            'response': response,
             'prompt_tokens': result.usage.to_dict().get('prompt_tokens', 0),
             'completion_tokens': result.usage.to_dict().get('completion_tokens', 0),
             'total_tokens': result.usage.to_dict().get('total_tokens', 0),

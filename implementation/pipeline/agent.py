@@ -16,6 +16,7 @@ from typing import (
     AsyncGenerator,
     cast,
     Optional,
+    Literal
 )
 import time
 import asyncio
@@ -266,9 +267,14 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
 
 
 class OpenAIAgent:
-    def __init__(self, model: str, embedding_model: Optional[str] = None):
+    def __init__(self, 
+                 model: str, 
+                 embedding_model: Optional[str] = None,
+                 model_provider: Literal['LMStudio', 'TogetherAI', 'FireworksAI'] = 'LMStudio'
+                 ):
         self.model = get_model(model)
         self.client = get_async_client()
+        self.model_provider = model_provider
         self.embedding_func: Optional[OpenAIEmbeddings] = (
             get_embedding_func(embedding_model) if embedding_model else None
         )
@@ -278,8 +284,11 @@ class OpenAIMessagesAgent(
     OpenAIAgent,
     MapAgent[list[ChatCompletionMessageParam], str],
 ):
-    def __init__(self, model: str):
-        super().__init__(model)
+    def __init__(self, 
+                 model: str, 
+                 model_provider: Literal['LMStudio', 'TogetherAI', 'FireworksAI'] = 'LMStudio'
+                ):
+        super().__init__(model, model_provider)
         MapAgent.__init__(self, name="OpenAIMessagesAgent")
 
     async def handle(self, input: list[ChatCompletionMessageParam]) -> str:

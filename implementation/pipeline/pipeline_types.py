@@ -38,3 +38,4 @@ class FinetuneEntry(TypedDict):
     chunk: str
     question: str
     answer: str
+    pass_through: bool = False
