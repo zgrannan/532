@@ -102,6 +102,7 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
                     chunk=e["chunk"],
                     question=e["question"],
                     answer=answer,
+                    pass_through=False,
                 ),
             ),
         )
