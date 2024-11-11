@@ -109,7 +109,7 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
         .fan_out(
             20,
             RefineQuestionsAgent(model=config.llm_model,
-                                 sampling_percent=0.7,
+                                 sampling_percent=0.5,
                                  model_provider=config.model_provider).with_cache(
                 f"cache/{config.config_name}_refine_question_cache.json", batch_size=10
             ),
