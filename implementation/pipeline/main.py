@@ -48,7 +48,7 @@ class PipelineConfig(BaseModel):
     max_documents: int = 50  # Maximum number of documents to process
     llm_parallelism: int = 20  # Number of LLM calls to run in parallel
     max_base_questions_per_chunk: int = (
-        5  # Maximum number of initial questions to generate per document chunk before expansion
+        10  # Maximum number of initial questions to generate per document chunk before expansion
     )
     document_chunk_size: int = 5000
     document_chunk_overlap: int = 100
