@@ -19,7 +19,7 @@ from pipeline_types import FinetuneEntry
 from pipeline_types import (
     EnrichedPdfChunkWithEntities,
     EnrichedPdfChunkWithQuestion,
-    EnrichedPdfChunk
+    EnrichedPdfChunk,
 )
 from datetime import datetime
 
@@ -118,10 +118,15 @@ class QuestionGenerator(
     OpenAIAgent,
     StatelessAgent[EnrichedPdfChunk, EnrichedPdfChunkWithQuestion],
 ):
-    def __init__(self, model: str, batch_size: int = 10, model_provider: ModelProvider = "LMStudio"):
+    def __init__(
+        self,
+        model: str,
+        max_questions: int,
+        model_provider: ModelProvider = "LMStudio",
+    ):
         super().__init__(model=model, model_provider=model_provider)
         StatelessAgent.__init__(self, name="Question Generator")
-        self.batch_size = batch_size
+        self.max_questions = max_questions
 
     async def process_element(
         self, input: EnrichedPdfChunk
@@ -139,14 +144,19 @@ class QuestionGenerator(
             )
 
     async def _generate_questions(
-        self, chunk: str, source: str, source_type: str,
+        self,
+        chunk: str,
+        source: str,
+        source_type: str,
     ) -> List[str]:
         qa_prompt = QUESTION_EXTRACTION_SYSTEM_PROMPT.format(
             text=chunk,
             source=source,
             source_type=source_type,
         )
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of qa_prompt: {len(qa_prompt)}")
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of qa_prompt: {len(qa_prompt)}"
+        )
         if self.model_provider == "LMStudio":
             response_format = QuestionAnswerModel
         else:
@@ -154,28 +164,40 @@ class QuestionGenerator(
                 "type": "json_object",
                 "schema": QuestionAnswerModel.model_json_schema(),
             }
-        init_questions =  await get_json_response_async(
-                                                        client=self.client,
-                                                        model=self.model,
-                                                        messages=[
-                                                            {"role": "system", "content": qa_prompt},
-                                                        ],
-                                                        response_format=response_format,
-                                                        agent_name=f"Initial {self.name}",
-                                                    )
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of init_questions: {len(init_questions.questions)}")
-        additional_question_prompt = FURTHER_QUESTIONS_PROMPT.format(question="\n".join([q for q in init_questions.questions]))
+        init_questions = await get_json_response_async(
+            client=self.client,
+            model=self.model,
+            messages=[
+                {"role": "system", "content": qa_prompt},
+            ],
+            response_format=response_format,
+            agent_name=f"Initial {self.name}",
+        )
+        if len(init_questions.questions) > self.max_questions:
+            return init_questions.questions[: self.max_questions]
+
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of init_questions: {len(init_questions.questions)}"
+        )
+        additional_question_prompt = FURTHER_QUESTIONS_PROMPT.format(
+            question="\n".join([q for q in init_questions.questions])
+        )
         additional_questions = await get_json_response_async(
-                                                        client=self.client,
-                                                        model=self.model,
-                                                        messages=[
-                                                            {"role": "system", "content": additional_question_prompt},
-                                                        ],
-                                                        response_format=response_format,
-                                                        agent_name=f"Secondary {self.name}",
-                                                    )
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of additional_questions: {len(additional_questions.questions)}")
-        return init_questions.questions + additional_questions.questions
+            client=self.client,
+            model=self.model,
+            messages=[
+                {"role": "system", "content": additional_question_prompt},
+            ],
+            response_format=response_format,
+            agent_name=f"Secondary {self.name}",
+        )
+        print(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of additional_questions: {len(additional_questions.questions)}"
+        )
+        return [*init_questions.questions, *additional_questions.questions][
+            : self.max_questions
+        ]
+
 
 class QAPair(TypedDict):
     question: str
@@ -196,7 +218,9 @@ class GetAnswerAgent(OpenAIAgent, MapAgent[QuestionWithChunk, str]):
 
     async def handle(self, input: QuestionWithChunk) -> str:
         try:
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating answer for Question: {input['question']}")
+            print(
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating answer for Question: {input['question']}"
+            )
             return await get_messages_response_async(
                 client=self.client,
                 model=self.model,
@@ -213,5 +237,7 @@ class GetAnswerAgent(OpenAIAgent, MapAgent[QuestionWithChunk, str]):
             )
         except Exception as e:
             # Return default answer, ideally code should not reach here
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in GetAnswerAgent handle(), {str(e)}")
+            print(
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in GetAnswerAgent handle(), {str(e)}"
+            )
             return "ERROR ANSWER NOT FOUND"

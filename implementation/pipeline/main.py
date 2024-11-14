@@ -42,11 +42,14 @@ import logging
 
 load_dotenv(find_dotenv())
 
-# Number of LLM calls to run in parallel
-LLM_PARALLELISM = 20
-
 
 class PipelineConfig(BaseModel):
+    test_ratio: float = 0.1  # Number of entries that should be used for testing only
+    max_documents: int = 50  # Maximum number of documents to process
+    llm_parallelism: int = 20  # Number of LLM calls to run in parallel
+    max_base_questions_per_chunk: int = (
+        5  # Maximum number of initial questions to generate per document chunk before expansion
+    )
     document_chunk_size: int = 5000
     document_chunk_overlap: int = 100
     rag_chunk_size: int = 500
@@ -95,16 +98,22 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             ChunkTextAgent(config.document_chunk_size, config.document_chunk_overlap)
         )
         .fan_out(
-            LLM_PARALLELISM,
-            QuestionGenerator(config.llm_model, 10, config.model_provider).with_cache(
-                filename=f"cache/{config.config_name}_question_generator_cache.json",
-                batch_size=10,
+            config.llm_parallelism,
+            QuestionGenerator(
+                config.llm_model,
+                max_questions=config.max_base_questions_per_chunk,
+                model_provider=config.model_provider,
+            ).with_cache(
+                filename=f"cache/{config.config_name}_question_generator_cache"
             ),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .fan_out(LLM_PARALLELISM, AddSourceToQuestionAgent(config.llm_model, config.model_provider))
         .fan_out(
-            LLM_PARALLELISM,
+            config.llm_parallelism,
+            AddSourceToQuestionAgent(config.llm_model, config.model_provider),
+        )
+        .fan_out(
+            config.llm_parallelism,
             EnrichAgent(
                 GetAnswerAgent(config.llm_model, config.model_provider).with_cache(
                     filename=f"cache/{config.config_name}_get_answer_cache.json",
@@ -123,7 +132,7 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             ),
         )
         .fan_out(
-            LLM_PARALLELISM,
+            config.llm_parallelism,
             RefineQuestionsAgent(
                 model=config.llm_model,
                 sampling_percent=0.5,
@@ -133,8 +142,14 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             ),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .fan_out(LLM_PARALLELISM, AddSourceToQuestionAgent(config.llm_model, config.model_provider))
-        .fan_out(LLM_PARALLELISM, GetRAGAnswerAgent(config.llm_model, config.vector_store))
+        .fan_out(
+            config.llm_parallelism,
+            AddSourceToQuestionAgent(config.llm_model, config.model_provider),
+        )
+        .fan_out(
+            config.llm_parallelism,
+            GetRAGAnswerAgent(config.llm_model, config.vector_store),
+        )
     )
 
 
@@ -145,6 +160,11 @@ async def generate_finetune_entries_for_files_in_directory(
     pdf_files = [
         os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(".pdf")
     ]
+    if len(pdf_files) > config.max_documents:
+        logging.warning(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Found {len(pdf_files)} files, but only processing {config.max_documents}."
+        )
+        pdf_files = pdf_files[: config.max_documents]
 
     # Get pipelines
     embedding_pipeline = create_embedding_pipeline(config)
@@ -165,7 +185,7 @@ async def generate_finetune_entries_for_files_in_directory(
     results = []
     for i, file in enumerate(pdf_files):
         logging.info(
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {file} ({i}/{len(pdf_files)})"
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {file} ({i + 1}/{len(pdf_files)})"
         )
         cached_output = cache.get_cached_output(file)
         if cached_output is not None:
@@ -257,23 +277,46 @@ async def main():
                 )
                 continue
 
-    df = pd.DataFrame(finetune_entries_filtered)
+    # Split into train and test sets
+    test_size = int(len(finetune_entries_filtered) * pipeline_config.test_ratio)
+    test_indices = random.sample(range(len(finetune_entries_filtered)), test_size)
+
+    train_entries = []
+    test_entries = []
+
+    for idx, entry in enumerate(finetune_entries_filtered):
+        if idx in test_indices:
+            test_entries.append(entry)
+        else:
+            train_entries.append(entry)
+
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Split into {len(train_entries)} train and {len(test_entries)} test entries")
+
+    test_df = pd.DataFrame(test_entries)
+    train_df = pd.DataFrame(train_entries)
 
     # if outputs folder doesn't exist, create it
     if not os.path.exists("outputs"):
         os.makedirs("outputs")
-    df.to_csv(f"outputs/{config_name}_output.csv", index=False)
+    test_df.to_csv(f"outputs/{config_name}_test_output.csv", index=False)
+    train_df.to_csv(f"outputs/{config_name}_train_output.csv", index=False)
 
     # Upload to Huggingface
-    qa_pairs_dict = list_of_dicts_to_dict_of_lists(finetune_entries)
+    qa_pairs_dict = list_of_dicts_to_dict_of_lists(train_entries)
+
+    huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
+    if huggingface_api_key is None:
+        raise ValueError("HUGGINGFACE_API_KEY is not set")
+
     upload_to_hf(
         data=qa_pairs_dict,
         repo_id=repo_id,
-        api_key=os.getenv("HUGGINGFACE_API_KEY"),
+        api_key=huggingface_api_key,
         config_name=config_name,
     )
 
     end_time = time.time()
+
     print(
         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Total time: {end_time - start_time} seconds"
     )
