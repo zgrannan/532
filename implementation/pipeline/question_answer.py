@@ -14,6 +14,7 @@ from helpers import (
 from agent import OpenAIAgent
 from agent import MapAgent
 from agent import StatelessAgent
+from agent import ModelProvider
 from pipeline_types import FinetuneEntry
 from pipeline_types import (
     EnrichedPdfChunkWithEntities,
@@ -92,7 +93,7 @@ Your goal is to generate high-quality, detailed answers by following these instr
 """
 
 FURTHER_QUESTIONS_PROMPT = """
-Given a list of example questions about a document, create a new set of diverse questions that maintain alignment with the themes, styles, and types of inquiries shown in the examples. 
+Given a list of example questions about a document, create a new set of diverse questions that maintain alignment with the themes, styles, and types of inquiries shown in the examples.
 
 Ensure that the new questions:
 
@@ -101,7 +102,7 @@ Ensure that the new questions:
 - Introduce new angles or aspects of inquiry that remain relevant to the document's subject.
 - Focus on generating questions that promotes deeper analysis, provide context, and encourage a comprehensive understanding of the document content
 
-Return at most 10 new questions. 
+Return at most 10 new questions.
 
 Questions:
 {question}
@@ -117,7 +118,7 @@ class QuestionGenerator(
     OpenAIAgent,
     StatelessAgent[EnrichedPdfChunk, EnrichedPdfChunkWithQuestion],
 ):
-    def __init__(self, model: str, batch_size: int = 10, model_provider: str = "LMStudio"):
+    def __init__(self, model: str, batch_size: int = 10, model_provider: ModelProvider = "LMStudio"):
         super().__init__(model=model, model_provider=model_provider)
         StatelessAgent.__init__(self, name="Question Generator")
         self.batch_size = batch_size
@@ -150,7 +151,7 @@ class QuestionGenerator(
             response_format = QuestionAnswerModel
         else:
             response_format = {
-                "type": "json_object", 
+                "type": "json_object",
                 "schema": QuestionAnswerModel.model_json_schema(),
             }
         init_questions =  await get_json_response_async(

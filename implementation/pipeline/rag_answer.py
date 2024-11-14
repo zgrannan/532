@@ -3,6 +3,7 @@ from langchain_chroma import Chroma
 from typing import List, AsyncIterator, Dict, Tuple
 from pipeline_types import FinetuneEntry
 from datetime import datetime
+import logging
 
 REFINED_RAG_ANSWER_PROMPT = """
 You are tasked with answering questions based on a provided text.
@@ -61,11 +62,11 @@ class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
         async for input in inputs:
             try:
                 if isinstance(input, dict) and "pass_through" in input and input["pass_through"]:
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Pass through: {input['question']}")
+                    logging.debug(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Pass through: {input['question']}")
                     yield input # Pass through the original question answer pair
                     continue
                 else:
-                    print(
+                    logging.debug(
                         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Searching filter=filename: {input['source']}"
                     )
                     docs = await self.vector_store.asimilarity_search(
@@ -74,7 +75,7 @@ class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
                         filter={"filename": input["source"]},
                     )
                     docs_str = "\n".join([r.page_content for r in docs])
-                    print(
+                    logging.debug(
                         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating RAG answer for Question: {input['question']}"
                     )
                     resp = await self.messages_agent.handle(
@@ -91,6 +92,6 @@ class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
                     )
                     yield {**input, "answer": resp}
             except Exception as e:
-                print(
+                logging.error(
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error generating RAG answer: {e}"
                 )

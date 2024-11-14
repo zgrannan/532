@@ -17,11 +17,9 @@ from agent import (
     UnchunkingAgent,
 )
 from entity_extraction import EntityExtractionAgent
-from helpers import (
-    list_of_dicts_to_dict_of_lists,
-    upload_to_hf,
-    slurp_iterator
-)
+from helpers import list_of_dicts_to_dict_of_lists, upload_to_hf, slurp_iterator
+from agent import Agent, CacheAgentBase, StatelessAgent
+from pipeline_types import EnrichedPdfFile
 from question_answer import (
     QuestionWithChunk,
     GetAnswerAgent,
@@ -31,68 +29,86 @@ from pipeline_types import FinetuneEntry
 from token_tracking import tracker
 from utils import EnrichPdfFileAgent
 from chunking import EmbedChunksAgent, ChunkTextAgent
-from generated_qa_processing import RemoveSimilarQuestionsAgent, AddSourceToQuestionAgent
+from generated_qa_processing import (
+    RemoveSimilarQuestionsAgent,
+    AddSourceToQuestionAgent,
+)
 from refine_question import RefineQuestionsAgent
 from rag_answer import GetRAGAnswerAgent
 from pydantic import BaseModel
 from pathlib import Path
 from typing import Literal
+import logging
 
 load_dotenv(find_dotenv())
 
+# Number of LLM calls to run in parallel
+LLM_PARALLELISM = 20
+
+
 class PipelineConfig(BaseModel):
     document_chunk_size: int = 5000
-    document_chunk_overlap: int = 100 
-    rag_chunk_size: int = 500 
+    document_chunk_overlap: int = 100
+    rag_chunk_size: int = 500
     rag_chunk_overlap: int = 100
     batch_size: int = 10
-    llm_model: str 
+    llm_model: str
     embedding_model: str = "text-embedding-nomic-embed-text-v1.5@f32"
     vector_store: Chroma
     embedding_function: OpenAIEmbeddings
     config_name: str
-    model_provider: Literal['LMStudio', 'TogetherAI', 'FireworksAI'] = 'LMStudio'
+    model_provider: Literal["LMStudio", "TogetherAI", "FireworksAI"] = "LMStudio"
+
     class Config:
         arbitrary_types_allowed = True
+
+
+def enrich_pdf_file_agent(
+    config: PipelineConfig,
+) -> StatelessAgent[str, EnrichedPdfFile]:
+    return EnrichPdfFileAgent().with_cache(
+        f"cache/{config.config_name}_enrich_pdf_cache.json", batch_size=1
+    )
+
 
 def create_embedding_pipeline(config: PipelineConfig) -> Any:
     """Pipeline for embedding documents"""
     return (
-        EnrichPdfFileAgent().with_cache(
-            f"cache/{config.config_name}_enrich_pdf_cache.json", batch_size=1
+        enrich_pdf_file_agent(config)
+        .and_then_sl(
+            EmbedChunksAgent(
+                config.embedding_function,
+                config.vector_store,
+                config.rag_chunk_size,
+                config.rag_chunk_overlap,
+            )
         )
-        .and_then(EmbedChunksAgent(
-            config.embedding_function,
-            config.vector_store,
-            config.rag_chunk_size,
-            config.rag_chunk_overlap
-        ))
-        .chunk(10)
+        .with_cache(f"cache/{config.config_name}_embed_chunks_cache.json", batch_size=1)
     )
+
 
 def create_qa_pipeline(config: PipelineConfig) -> Any:
     """Main Pipeline for generating Q/A pairs"""
     return (
-        EnrichPdfFileAgent().with_cache(
-            f"cache/{config.config_name}_enrich_pdf_cache.json", batch_size=1
+        enrich_pdf_file_agent(config)
+        .and_then(
+            ChunkTextAgent(config.document_chunk_size, config.document_chunk_overlap)
         )
-        .and_then(ChunkTextAgent(config.document_chunk_size, config.document_chunk_overlap))
-        .chunk(20)  # We embed 10 text chunks at a time
-        .and_then(UnchunkingAgent())  # Undo the previous chunking
         .fan_out(
-            20,
-            QuestionGenerator(config.llm_model, 10,  config.model_provider).with_cache(
+            LLM_PARALLELISM,
+            QuestionGenerator(config.llm_model, 10, config.model_provider).with_cache(
                 filename=f"cache/{config.config_name}_question_generator_cache.json",
                 batch_size=10,
             ),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .and_then(AddSourceToQuestionAgent(config.llm_model,  config.model_provider))
+        .fan_out(LLM_PARALLELISM, AddSourceToQuestionAgent(config.llm_model, config.model_provider))
         .fan_out(
-            20,
+            LLM_PARALLELISM,
             EnrichAgent(
-                GetAnswerAgent(config.llm_model,  config.model_provider).with_cache(
-                    filename=f"cache/{config.config_name}_get_answer_cache.json", batch_size=10
+                GetAnswerAgent(config.llm_model, config.model_provider).with_cache(
+                    filename=f"cache/{config.config_name}_get_answer_cache.json",
+                    batch_size=10,
                 ),
                 lambda e: QuestionWithChunk(question=e["question"], chunk=e["chunk"]),
                 lambda e, answer: FinetuneEntry(
@@ -107,26 +123,27 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             ),
         )
         .fan_out(
-            20,
-            RefineQuestionsAgent(model=config.llm_model,
-                                 sampling_percent=0.5,
-                                 model_provider=config.model_provider).with_cache(
+            LLM_PARALLELISM,
+            RefineQuestionsAgent(
+                model=config.llm_model,
+                sampling_percent=0.5,
+                model_provider=config.model_provider,
+            ).with_cache(
                 f"cache/{config.config_name}_refine_question_cache.json", batch_size=10
             ),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .and_then(AddSourceToQuestionAgent(config.llm_model, config.model_provider))
-        .fan_out(20, GetRAGAnswerAgent(config.llm_model, config.vector_store))
+        .fan_out(LLM_PARALLELISM, AddSourceToQuestionAgent(config.llm_model, config.model_provider))
+        .fan_out(LLM_PARALLELISM, GetRAGAnswerAgent(config.llm_model, config.vector_store))
     )
 
+
 async def generate_finetune_entries_for_files_in_directory(
-        config: PipelineConfig,
-        directory: str,
+    config: PipelineConfig,
+    directory: str,
 ) -> List[FinetuneEntry]:
     pdf_files = [
-        os.path.join(directory, f) 
-        for f in os.listdir(directory) 
-        if f.endswith(".pdf")
+        os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(".pdf")
     ]
 
     # Get pipelines
@@ -137,12 +154,31 @@ async def generate_finetune_entries_for_files_in_directory(
     print(
         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting to chunk and embed into vectordb"
     )
-    res = await slurp_iterator(embedding_pipeline.process_list(pdf_files))
-    
+    await slurp_iterator(embedding_pipeline.process_list(pdf_files))
+
     print(
         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting to run qa pipeline"
     )
-    return await slurp_iterator(qa_pipeline.process_list(pdf_files))
+
+    cache = CacheAgentBase(f"cache/{config.config_name}_qa_cache.json", batch_size=1)
+
+    results = []
+    for i, file in enumerate(pdf_files):
+        logging.info(
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {file} ({i}/{len(pdf_files)})"
+        )
+        cached_output = cache.get_cached_output(file)
+        if cached_output is not None:
+            logging.info(
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Found cached output for {file}"
+            )
+            results.extend(cached_output)
+        else:
+            results.extend(await slurp_iterator(qa_pipeline.process_once(file)))
+            cache.set_cached_output(file, results)
+
+    return results
+
 
 async def main():
     start_time = time.time()
@@ -173,13 +209,13 @@ async def main():
     # Hugging Face
     repo_id = "CPSC532/arxiv_qa_data"
 
-    embedding_function= OpenAIEmbeddings(
-            model=EMBEDDING_MODEL,
-            base_url="http://localhost:1234/v1",
-            api_key="test",
-            check_embedding_ctx_length=False,
-        )
-    
+    embedding_function = OpenAIEmbeddings(
+        model=EMBEDDING_MODEL,
+        base_url="http://localhost:1234/v1",
+        api_key="test",
+        check_embedding_ctx_length=False,
+    )
+
     vector_store = Chroma(
         collection_name=config_name,
         embedding_function=embedding_function,
@@ -187,20 +223,18 @@ async def main():
     )
 
     pipeline_config = PipelineConfig(
-                                    document_chunk_size = 5000,
-                                    document_chunk_overlap= 100 ,
-                                    rag_chunk_size = 500 ,
-                                    rag_chunk_overlap = 100,
-                                    batch_size = 10,
-                                    llm_model = LLM_MODEL ,
-                                    embedding_model = EMBEDDING_MODEL,
-                                    vector_store = vector_store,
-                                    embedding_function = embedding_function,
-                                    config_name = config_name,
-                                    model_provider='LMStudio'
-                            )
-    
-
+        document_chunk_size=5000,
+        document_chunk_overlap=100,
+        rag_chunk_size=500,
+        rag_chunk_overlap=100,
+        batch_size=10,
+        llm_model=LLM_MODEL,
+        embedding_model=EMBEDDING_MODEL,
+        vector_store=vector_store,
+        embedding_function=embedding_function,
+        config_name=config_name,
+        model_provider="LMStudio",
+    )
 
     # First stage getting initial Q/A Pairs
     finetune_entries = await generate_finetune_entries_for_files_in_directory(
@@ -224,7 +258,7 @@ async def main():
                 continue
 
     df = pd.DataFrame(finetune_entries_filtered)
-    
+
     # if outputs folder doesn't exist, create it
     if not os.path.exists("outputs"):
         os.makedirs("outputs")

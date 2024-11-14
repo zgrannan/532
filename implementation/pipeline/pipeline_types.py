@@ -38,4 +38,14 @@ class FinetuneEntry(TypedDict):
     chunk: str
     question: str
     answer: str
-    pass_through: bool = False
+    pass_through: bool
+
+class FinetuneEntryRefined(TypedDict):
+    filename: str
+    source: str
+    source_type: str
+    chunk: str
+    question: str
+    answer: str
+    original_question: str
+

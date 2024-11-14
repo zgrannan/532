@@ -2,6 +2,7 @@ from agent import StatelessAgent, OpenAIAgent
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
+from agent import MapAgent
 from pipeline_types import (
     FinetuneEntry,
     EnrichedPdfChunk,
@@ -13,11 +14,11 @@ from datetime import datetime
 from uuid import uuid4
 from typing import AsyncIterator, List
 from helpers import split_text
-import os 
+import os
 
-# Chunk and Embed text into ChromaDB VectorDB 
+# Chunk and Embed text into ChromaDB VectorDB
 
-class EmbedChunksAgent(StatelessAgent[EnrichedPdfFile, List[EnrichedPdfChunk]]):
+class EmbedChunksAgent(MapAgent[EnrichedPdfFile, None]):
     def __init__(
         self,
         embeddings_func: OpenAIEmbeddings,
@@ -31,9 +32,9 @@ class EmbedChunksAgent(StatelessAgent[EnrichedPdfFile, List[EnrichedPdfChunk]]):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    async def process_element(
+    async def handle(
         self, input: EnrichedPdfFile
-    ) -> AsyncIterator[List[EnrichedPdfChunk]]:
+    ) -> None:
         chunks = split_text(input["text"], self.chunk_size, self.chunk_overlap)
         print(
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Chunking text into {len(chunks)} chunks"
@@ -49,14 +50,8 @@ class EmbedChunksAgent(StatelessAgent[EnrichedPdfFile, List[EnrichedPdfChunk]]):
         ]
         uuids = [str(uuid4()) for _ in chunks]
         await self.vector_store.aadd_documents(docs, ids=uuids)
+        return None
 
-        for chunk in chunks:
-            yield EnrichedPdfChunk(
-                filename=input["filename"],
-                source=input["source"],
-                source_type=input["source_type"],
-                chunk=chunk,
-            )
 
 class ChunkTextAgent(StatelessAgent[EnrichedPdfFile, EnrichedPdfChunk]):
     def __init__(self, chunk_size: int, chunk_overlap: int):

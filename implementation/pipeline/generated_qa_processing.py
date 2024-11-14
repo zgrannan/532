@@ -1,4 +1,5 @@
 from agent import Agent, MapAgent, StatelessAgent, OpenAIAgent
+from agent import ModelProvider
 from pipeline_types import (
     FinetuneEntry,
     EnrichedPdfChunkWithQuestion,
@@ -10,6 +11,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from helpers import slurp_iterator, get_json_response_async
 from datetime import datetime
 from pydantic import BaseModel
+import logging
 
 class RemoveDuplicateQuestionsAgent(
     Agent[EnrichedPdfChunkWithQuestion, EnrichedPdfChunkWithQuestion]
@@ -66,7 +68,7 @@ class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
         ]
 
         # Print the number of questions removed
-        print(
+        logging.info(
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Removed {len(indices_to_remove)} similar questions from {len(input_list)} questions"
         )
 
@@ -112,11 +114,11 @@ Source Type:
 """
 
 class SourceInQuestion(BaseModel):
-    question: str 
+    question: str
 
 class AddSourceToQuestionAgent(OpenAIAgent,
                                StatelessAgent[FinetuneEntry, FinetuneEntry]):
-    def __init__(self, model: str, model_provider: str = "LMStudio"):
+    def __init__(self, model: str, model_provider: ModelProvider = "LMStudio"):
         super().__init__(model=model, model_provider=model_provider)
         StatelessAgent.__init__(self, name="Add Source to Question Agent")
 
@@ -148,8 +150,8 @@ class AddSourceToQuestionAgent(OpenAIAgent,
             response_format=response_format,
             agent_name=self.name,
         )
-        print(f"Original Question: {input['question']}")
-        print(f"Modified Question: {resp.question}")
+        logging.debug(f"Original Question: {input['question']}")
+        logging.debug(f"Modified Question: {resp.question}")
         yield {
             **input,
             "question": resp.question

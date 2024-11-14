@@ -1,8 +1,9 @@
 from typing import List, AsyncIterator
 from pydantic import BaseModel
 from datetime import datetime
-import random 
+import random
 from agent import StatelessAgent, OpenAIAgent
+from agent import ModelProvider
 from pipeline_types import FinetuneEntry, EnrichedPdfChunkWithQuestion
 from helpers import get_json_response_async
 
@@ -30,7 +31,7 @@ class RefineQuestionsAgent(
     OpenAIAgent,
     StatelessAgent[FinetuneEntry, FinetuneEntry],
 ):
-    def __init__(self, model: str, sampling_percent: float = 0.1, model_provider: str = "LMStudio"):
+    def __init__(self, model: str, sampling_percent: float = 0.1, model_provider: ModelProvider = "LMStudio"):
         super().__init__(model=model, model_provider=model_provider)
         StatelessAgent.__init__(self, name="Refine Questions Agent")
         self.sampling_percent = sampling_percent
@@ -45,7 +46,7 @@ class RefineQuestionsAgent(
             response_format = RefinedQuestionsModel
         else:
             response_format = {
-                "type": "json_object", 
+                "type": "json_object",
                 "schema": RefinedQuestionsModel.model_json_schema(),
             }
         resp = await get_json_response_async(
@@ -66,19 +67,19 @@ class RefineQuestionsAgent(
         yield { # Also return the original question, since we are trying to 'pass through' original q/a pair, we need to pass through this as well in GetRAGAnswerAgent
             **input,
             "pass_through": True
-          }  
+          }
         for question in resp.questions:
             if random.random() > self.sampling_percent:
                 continue
             else:
                 yield {
-                    **input, # The answer 
+                    **input, # The answer
                     "question": question,
                 }
 
 # Moved to question_answer.py
 FURTHER_QUESTIONS_PROMPT = """
-Given a list of example questions about a document, create a new set of diverse questions that maintain alignment with the themes, styles, and types of inquiries shown in the examples. 
+Given a list of example questions about a document, create a new set of diverse questions that maintain alignment with the themes, styles, and types of inquiries shown in the examples.
 
 Ensure that the new questions:
 
@@ -86,8 +87,8 @@ Ensure that the new questions:
 - Vary in structure (e.g., open-ended and factual).
 - Introduce new angles or aspects of inquiry that remain relevant to the document's subject.
 - Focus on generating questions that promotes deeper analysis, provide context, and encourage a comprehensive understanding of the document content
-    
-Return at most 10 new questions. 
+
+Return at most 10 new questions.
 
 Question:
 {question}
@@ -116,7 +117,7 @@ class RefineQuestionsAgentInit(
             response_format = RefinedQuestionsModel
         else:
             response_format = {
-                "type": "json_object", 
+                "type": "json_object",
                 "schema": RefinedQuestionsModel.model_json_schema(),
             }
         resp = await get_json_response_async(
@@ -141,4 +142,4 @@ class RefineQuestionsAgentInit(
                 "refined": True,
             }
 
-# Add check that source is in question 
+# Add check that source is in question

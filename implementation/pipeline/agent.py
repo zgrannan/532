@@ -62,6 +62,9 @@ class Pipeline(ABC, Generic[Input, Output]):
     def output_id(self) -> int:
         pass
 
+    def process_once(self, input: Input):
+        return self.process(once(input))
+
     @abstractmethod
     async def _process(self, input: AsyncIterator[Input]) -> AsyncIterator[Output]:
         yield cast(
@@ -99,9 +102,6 @@ class Pipeline(ABC, Generic[Input, Output]):
         frm: Callable[[Output, UU], V],
     ) -> "Pipeline[Input, V]":
         return self.and_then(EnrichAgent(agent, to, frm))
-
-    def process_once(self, input: Input):
-        return self.process(once(input))
 
     def process_list(self, input: List[Input]) -> AsyncIterator[Output]:
         async def async_generator(input: List[Input]) -> AsyncIterator[Input]:
@@ -203,6 +203,20 @@ class StatelessAgent(Agent[Input, Output]):
     def with_cache(self, filename: str, batch_size: int = 10) -> "Agent[Input, Output]":
         return CacheStatelessAgent(self, filename, batch_size)
 
+    def and_then_sl(self, agent: "StatelessAgent[Output, V]") -> "StatelessComposeAgent[Input, V]":
+        return StatelessComposeAgent(self, agent)
+
+
+class StatelessComposeAgent(StatelessAgent[Input, Output]):
+    def __init__(self, agent1: StatelessAgent[Input, U], agent2: StatelessAgent[U, Output]):
+        super().__init__(f"StatelessComposeAgent")
+        self.agent1 = agent1
+        self.agent2 = agent2
+
+    async def process_element(self, elem: Input) -> AsyncIterator[Output]:
+        async for output1 in self.agent1.process_element(elem):
+            async for output2 in self.agent2.process_element(output1):
+                yield output2
 
 class MapAgent(StatelessAgent[Input, Output], Generic[Input, Output]):
     """
@@ -266,11 +280,13 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
             yield self.frm(orig_input, elem)
 
 
+ModelProvider = Literal['LMStudio', 'TogetherAI', 'FireworksAI']
+
 class OpenAIAgent:
-    def __init__(self, 
-                 model: str, 
+    def __init__(self,
+                 model: str,
                  embedding_model: Optional[str] = None,
-                 model_provider: Literal['LMStudio', 'TogetherAI', 'FireworksAI'] = 'LMStudio'
+                 model_provider: ModelProvider = 'LMStudio'
                  ):
         self.model = get_model(model)
         self.client = get_async_client()
@@ -284,9 +300,9 @@ class OpenAIMessagesAgent(
     OpenAIAgent,
     MapAgent[list[ChatCompletionMessageParam], str],
 ):
-    def __init__(self, 
-                 model: str, 
-                 model_provider: Literal['LMStudio', 'TogetherAI', 'FireworksAI'] = 'LMStudio'
+    def __init__(self,
+                 model: str,
+                 model_provider: ModelProvider = 'LMStudio'
                 ):
         super().__init__(model, model_provider)
         MapAgent.__init__(self, name="OpenAIMessagesAgent")

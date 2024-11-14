@@ -13,6 +13,7 @@ from langchain_openai import OpenAIEmbeddings
 from token_tracking import track_llm_usage
 
 LM_STUDIO_BASE_URL = "http://localhost:1234/v1"
+MAX_TOKENS = 16384
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def get_json_response(
                     response_format: type[BaseModel],
                     temperature: float = 0.0,
                     agent_name: str = "", # for track_llm_usage
-                    max_tokens: int = 32000,
+                    max_tokens: int = MAX_TOKENS,
                     **kwargs: dict,
                 ) -> BaseModel:
 
@@ -69,7 +70,7 @@ async def get_json_response_async(
                     response_format: type[T],
                     temperature: float = 0.0,
                     agent_name: str = "", # for track_llm_usage
-                    max_tokens: int = 32000,
+                    max_tokens: int = MAX_TOKENS,
                     **kwargs: dict,
                     ) -> T:
     response = await client.beta.chat.completions.parse(
@@ -95,7 +96,7 @@ def get_messages_response(
                     messages: List[ChatCompletionMessageParam],
                     temperature: float = 0.0,
                     agent_name: str = "", # for track_llm_usage
-                    max_tokens: int = 32000,
+                    max_tokens: int = MAX_TOKENS,
                     **kwargs: dict,
                     ) -> str:
     response = client.chat.completions.create(
@@ -120,7 +121,7 @@ async def get_messages_response_async(
                     messages: List[ChatCompletionMessageParam],
                     temperature: float = 0.0,
                     agent_name: str = "", # for track_llm_usage
-                    max_tokens: int = 32000,
+                    max_tokens: int = MAX_TOKENS,
                     **kwargs: dict,
                     ) -> str:
     response = await client.chat.completions.create(
@@ -233,7 +234,8 @@ def get_embedding_func(embedding_model) -> OpenAIEmbeddings:
                             check_embedding_ctx_length=False # https://github.com/langchain-ai/langchain/issues/21318
                         )
 
-async def slurp_iterator(generator: AsyncIterator[T]) -> List[T]:
+SlurpT = TypeVar("SlurpT")
+async def slurp_iterator(generator: AsyncIterator[SlurpT]) -> List[SlurpT]:
     buffer = []
     try:
         async for item in generator:
