@@ -228,6 +228,9 @@ async def main():
     # LLM_MODEL = "accounts/fireworks/models/llama-v3p1-8b-instruct" # fireworks
     # Hugging Face
     repo_id = "CPSC532/arxiv_qa_data"
+    huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
+    if huggingface_api_key is None:
+        raise ValueError("HUGGINGFACE_API_KEY is not set")
 
     embedding_function = OpenAIEmbeddings(
         model=EMBEDDING_MODEL,
@@ -304,9 +307,7 @@ async def main():
     # Upload to Huggingface
     qa_pairs_dict = list_of_dicts_to_dict_of_lists(train_entries)
 
-    huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
-    if huggingface_api_key is None:
-        raise ValueError("HUGGINGFACE_API_KEY is not set")
+
 
     upload_to_hf(
         data=qa_pairs_dict,
