@@ -18,7 +18,7 @@ from agent import (
 )
 from entity_extraction import EntityExtractionAgent
 from helpers import list_of_dicts_to_dict_of_lists, upload_to_hf, slurp_iterator
-from agent import Agent, CacheAgentBase, StatelessAgent
+from agent import Agent, Cache, StatelessAgent
 from pipeline_types import EnrichedPdfFile
 from question_answer import (
     QuestionWithChunk,
@@ -35,7 +35,7 @@ from generated_qa_processing import (
 )
 from refine_question import RefineQuestionsAgent
 from rag_answer import GetRAGAnswerAgent
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from pathlib import Path
 from typing import Literal
 import logging
@@ -70,7 +70,7 @@ def enrich_pdf_file_agent(
     config: PipelineConfig,
 ) -> StatelessAgent[str, EnrichedPdfFile]:
     return EnrichPdfFileAgent().with_cache(
-        f"cache/{config.config_name}_enrich_pdf_cache.json", batch_size=1
+        f"cache/{config.config_name}_enrich_pdf_cache"
     )
 
 
@@ -86,7 +86,7 @@ def create_embedding_pipeline(config: PipelineConfig) -> Any:
                 config.rag_chunk_overlap,
             )
         )
-        .with_cache(f"cache/{config.config_name}_embed_chunks_cache.json", batch_size=1)
+        .with_cache(f"cache/{config.config_name}_embed_chunks_cache.json")
     )
 
 
@@ -116,8 +116,7 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             config.llm_parallelism,
             EnrichAgent(
                 GetAnswerAgent(config.llm_model, config.model_provider).with_cache(
-                    filename=f"cache/{config.config_name}_get_answer_cache.json",
-                    batch_size=10,
+                    filename=f"cache/{config.config_name}_get_answer_cache",
                 ),
                 lambda e: QuestionWithChunk(question=e["question"], chunk=e["chunk"]),
                 lambda e, answer: FinetuneEntry(
@@ -137,9 +136,7 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
                 model=config.llm_model,
                 sampling_percent=0.5,
                 model_provider=config.model_provider,
-            ).with_cache(
-                f"cache/{config.config_name}_refine_question_cache.json", batch_size=10
-            ),
+            ).with_cache(f"cache/{config.config_name}_refine_question_cache"),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
         .fan_out(
@@ -180,7 +177,7 @@ async def generate_finetune_entries_for_files_in_directory(
         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting to run qa pipeline"
     )
 
-    cache = CacheAgentBase(f"cache/{config.config_name}_qa_cache.json", batch_size=1)
+    cache = Cache(f"cache/{config.config_name}_qa_cache")
 
     results = []
     for i, file in enumerate(pdf_files):
@@ -235,7 +232,7 @@ async def main():
     embedding_function = OpenAIEmbeddings(
         model=EMBEDDING_MODEL,
         base_url="http://localhost:1234/v1",
-        api_key="test",
+        api_key=SecretStr("test"),
         check_embedding_ctx_length=False,
     )
 
@@ -293,7 +290,9 @@ async def main():
         else:
             train_entries.append(entry)
 
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Split into {len(train_entries)} train and {len(test_entries)} test entries")
+    print(
+        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Split into {len(train_entries)} train and {len(test_entries)} test entries"
+    )
 
     test_df = pd.DataFrame(test_entries)
     train_df = pd.DataFrame(train_entries)

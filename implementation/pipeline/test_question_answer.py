@@ -6,7 +6,7 @@ from question_answer import GetAnswerAgent
 
 class TestQuestionAnswer(unittest.IsolatedAsyncioTestCase):
     async def test_get_answer(self):
-        agent = GetAnswerAgent()
+        agent = GetAnswerAgent(model="gpt-4o")
         response = await agent.handle(
             QuestionWithChunk(
                 question="What is my favorite food?", chunk="My favorite food is sushi"

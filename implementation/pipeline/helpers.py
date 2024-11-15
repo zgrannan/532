@@ -217,7 +217,7 @@ def get_embedding_func(embedding_model) -> OpenAIEmbeddings:
 SlurpT = TypeVar("SlurpT")
 
 
-async def slurp_iterator(generator: AsyncIterator[T]) -> List[T]:
+async def slurp_iterator(generator: AsyncIterator[SlurpT]) -> List[SlurpT]:
     buffer = []
     try:
         async for item in generator:

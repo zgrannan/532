@@ -6,6 +6,7 @@ import diskcache
 from typing import (
     Any,
     AsyncIterator,
+    Awaitable,
     Callable,
     Dict,
     Iterator,
@@ -16,7 +17,7 @@ from typing import (
     AsyncGenerator,
     cast,
     Optional,
-    Literal
+    Literal,
 )
 import time
 import asyncio
@@ -200,15 +201,19 @@ class StatelessAgent(Agent[Input, Output]):
             async for output in self.process_element(elem):
                 yield output
 
-    def with_cache(self, filename: str, batch_size: int = 10) -> "Agent[Input, Output]":
-        return CacheStatelessAgent(self, filename, batch_size)
+    def with_cache(self, filename: str) -> "Agent[Input, Output]":
+        return CacheStatelessAgent(self, filename)
 
-    def and_then_sl(self, agent: "StatelessAgent[Output, V]") -> "StatelessComposeAgent[Input, V]":
+    def and_then_sl(
+        self, agent: "StatelessAgent[Output, V]"
+    ) -> "StatelessComposeAgent[Input, V]":
         return StatelessComposeAgent(self, agent)
 
 
 class StatelessComposeAgent(StatelessAgent[Input, Output]):
-    def __init__(self, agent1: StatelessAgent[Input, U], agent2: StatelessAgent[U, Output]):
+    def __init__(
+        self, agent1: StatelessAgent[Input, U], agent2: StatelessAgent[U, Output]
+    ):
         super().__init__(f"StatelessComposeAgent")
         self.agent1 = agent1
         self.agent2 = agent2
@@ -217,6 +222,7 @@ class StatelessComposeAgent(StatelessAgent[Input, Output]):
         async for output1 in self.agent1.process_element(elem):
             async for output2 in self.agent2.process_element(output1):
                 yield output2
+
 
 class MapAgent(StatelessAgent[Input, Output], Generic[Input, Output]):
     """
@@ -233,10 +239,8 @@ class MapAgent(StatelessAgent[Input, Output], Generic[Input, Output]):
     async def handle(self, input: Input) -> Output:
         pass
 
-    def with_cache(
-        self, filename: str, batch_size: int = 10
-    ) -> "MapAgent[Input, Output]":
-        return CacheMapAgent(self, filename, batch_size)
+    def with_cache(self, filename: str) -> "MapAgent[Input, Output]":
+        return CacheMapAgent(self, filename)
 
 
 class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
@@ -280,14 +284,16 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
             yield self.frm(orig_input, elem)
 
 
-ModelProvider = Literal['LMStudio', 'TogetherAI', 'FireworksAI']
+ModelProvider = Literal["LMStudio", "TogetherAI", "FireworksAI"]
+
 
 class OpenAIAgent:
-    def __init__(self,
-                 model: str,
-                 embedding_model: Optional[str] = None,
-                 model_provider: ModelProvider = 'LMStudio'
-                 ):
+    def __init__(
+        self,
+        model: str,
+        embedding_model: Optional[str] = None,
+        model_provider: ModelProvider = "LMStudio",
+    ):
         self.model = get_model(model)
         self.client = get_async_client()
         self.model_provider = model_provider
@@ -300,10 +306,7 @@ class OpenAIMessagesAgent(
     OpenAIAgent,
     MapAgent[list[ChatCompletionMessageParam], str],
 ):
-    def __init__(self,
-                 model: str,
-                 model_provider: ModelProvider = 'LMStudio'
-                ):
+    def __init__(self, model: str, model_provider: ModelProvider = "LMStudio"):
         super().__init__(model, model_provider)
         MapAgent.__init__(self, name="OpenAIMessagesAgent")
 
@@ -522,37 +525,33 @@ class ChunkingAgent(Agent[T, List[T]]):
             yield chunk  # Yield any remaining items as the last chunk
 
 
-class CacheAgentBase(Generic[Input, Output]):
+class Cache:
     """
     Base class that handles caching logic for agents.
     """
 
-    def __init__(self, directory: str, batch_size: int = 10):
+    def __init__(self, directory: str):
         self.filename = directory
-        self.batch_size = batch_size
-        self.pending_writes: List[Tuple[Input, Any]] = []
-        # Ensure the directory exists
         dir_name = os.path.dirname(self.filename) or "."
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
-        # Initialize the Diskcache cache
         self.cache = diskcache.Cache(self.filename)
 
-    def get_cached_output(self, input: Input) -> Optional[Any]:
+    def get_cached_output(self, input: Any) -> Optional[Any]:
         return self.cache.get(input)
 
-    def set_cached_output(self, input: Input, output: Any):
-        self.pending_writes.append((input, output))
-        if len(self.pending_writes) >= self.batch_size:
-            start_time = time.time()
-            # Write all pending items to cache
-            for cached_input, cached_output in self.pending_writes:
-                self.cache[cached_input] = cached_output
-            end_time = time.time()
-            print(
-                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Time taken to write {len(self.pending_writes)} items to cache: {end_time-start_time} for {self.filename}"
-            )
-            self.pending_writes = []
+    def set_cached_output(self, input: Any, output: Any):
+        self.cache[input] = output
+
+    async def apply(
+        self, func: Callable[[], Awaitable[Output]], input: Any
+    ) -> Output:
+        cached = self.get_cached_output(input)
+        if cached is not None:
+            return cached
+        result = await func()
+        self.set_cached_output(input, result)
+        return result
 
 
 class CacheStatelessAgent(StatelessAgent[Input, Output]):
@@ -560,12 +559,10 @@ class CacheStatelessAgent(StatelessAgent[Input, Output]):
     Caching agent for StatelessAgents.
     """
 
-    def __init__(
-        self, agent: StatelessAgent[Input, Output], filename: str, batch_size: int = 10
-    ):
+    def __init__(self, agent: StatelessAgent[Input, Output], filename: str):
         super().__init__(name=f"Cache")
         self.agent = agent
-        self.cache_base = CacheAgentBase[Input, Any](filename, batch_size)
+        self.cache_base = Cache(filename)
 
     def nodes(self) -> Dict[int, str]:
         return {**self.agent.nodes(), self.id: self.name}
@@ -597,12 +594,10 @@ class CacheMapAgent(MapAgent[Input, Output]):
     Caching agent for MapAgents.
     """
 
-    def __init__(
-        self, agent: MapAgent[Input, Output], filename: str, batch_size: int = 10
-    ):
+    def __init__(self, agent: MapAgent[Input, Output], filename: str):
         super().__init__(name=f"Cache")
         self.agent = agent
-        self.cache_base = CacheAgentBase[Input, Output](filename, batch_size)
+        self.cache_base = Cache(filename)
 
     def edges(self) -> List[Tuple[int, int]]:
         return [

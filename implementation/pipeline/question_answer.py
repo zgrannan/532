@@ -212,7 +212,7 @@ class QuestionWithChunk(TypedDict):
 
 
 class GetAnswerAgent(OpenAIAgent, MapAgent[QuestionWithChunk, str]):
-    def __init__(self, model, model_provider: str = "LMStudio"):
+    def __init__(self, model: str, model_provider: ModelProvider = "LMStudio"):
         super().__init__(model=model, model_provider=model_provider)
         MapAgent.__init__(self, name="Get Answer Agent")
 
