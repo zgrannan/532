@@ -90,7 +90,8 @@ class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
                             },
                         ],
                     )
-                    yield {**input, "answer": resp}
+                    if resp != "NO ANSWER FOUND":
+                        yield {**input, "answer": resp}
             except Exception as e:
                 logging.error(
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error generating RAG answer: {e}"

@@ -44,7 +44,6 @@ load_dotenv(find_dotenv())
 
 
 class PipelineConfig(BaseModel):
-    test_ratio: float = 0.1  # Number of entries that should be used for testing only
     max_documents: int = 50  # Maximum number of documents to process
     llm_parallelism: int = 20  # Number of LLM calls to run in parallel
     max_base_questions_per_chunk: int = (
@@ -55,6 +54,7 @@ class PipelineConfig(BaseModel):
     rag_chunk_size: int = 500
     rag_chunk_overlap: int = 100
     batch_size: int = 10
+    test_ratio: float # Number of entries that should be used for testing only
     llm_model: str
     embedding_model: str = "text-embedding-nomic-embed-text-v1.5@f32"
     vector_store: Chroma
@@ -211,13 +211,24 @@ async def main():
     parser.add_argument(
         "--file_path",
         type=str,
-        default="../data",
+        default="../final_data",
         help="Path to the directory containing PDF files (default: ../data)",
+    )
+    parser.add_argument(
+        "--test_ratio",
+        type=float,
+        default=0.1,
+        help="Ratio of test data to use (default: 0.1)",
+    )
+    parser.add_argument(
+        "--no-upload",
+        action="store_false",
+        dest="upload",
+        help="Do not upload to Hugging Face",
     )
     args = parser.parse_args()
     config_name = args.config_name
     file_path = args.file_path
-
     # INPUTS
     EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"  # on LM Studio
     LLM_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
@@ -226,7 +237,7 @@ async def main():
     # Hugging Face
     repo_id = "CPSC532/arxiv_qa_data"
     huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
-    if huggingface_api_key is None:
+    if args.upload and huggingface_api_key is None:
         raise ValueError("HUGGINGFACE_API_KEY is not set")
 
     embedding_function = OpenAIEmbeddings(
@@ -243,6 +254,7 @@ async def main():
     )
 
     pipeline_config = PipelineConfig(
+        test_ratio=args.test_ratio,
         document_chunk_size=5000,
         document_chunk_overlap=100,
         rag_chunk_size=500,
@@ -303,17 +315,19 @@ async def main():
     test_df.to_csv(f"outputs/{config_name}_test_output.csv", index=False)
     train_df.to_csv(f"outputs/{config_name}_train_output.csv", index=False)
 
-    # Upload to Huggingface
-    qa_pairs_dict = list_of_dicts_to_dict_of_lists(train_entries)
+    if args.upload:
+        # Upload to Huggingface
+        qa_pairs_dict = list_of_dicts_to_dict_of_lists(train_entries)
 
+        if huggingface_api_key is None:
+            raise ValueError("HUGGINGFACE_API_KEY is not set")
 
-
-    upload_to_hf(
-        data=qa_pairs_dict,
-        repo_id=repo_id,
-        api_key=huggingface_api_key,
-        config_name=config_name,
-    )
+        upload_to_hf(
+            data=qa_pairs_dict,
+            repo_id=repo_id,
+            api_key=huggingface_api_key,
+            config_name=config_name,
+        )
 
     end_time = time.time()
 

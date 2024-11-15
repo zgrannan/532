@@ -45,7 +45,7 @@ class TestJudge(unittest.IsolatedAsyncioTestCase):
                     f"Test case {filename} failed - expected {test_case['better_answer']} to win",
                 )
 
-    async def test_judge_questions(self):
+    async def test_judge_questions(self: "TestJudge"):
         async def base_response(question: str) -> str:
             return "4"
 

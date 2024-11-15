@@ -34,14 +34,14 @@ class EvalQuestion(TypedDict):
 
 
 JUDGE_SYSTEM_PROMPT = """
-    You are an expert judge that determines which one of two answers is better.
+    You are an expert judge that determines which one of two answers is more similar to the true answer.
     The context is {context}.
     The question is {question}.
     The true answer is {true_answer}.
     The first answer is {answer_a}.
     The second answer is {answer_b}.
 
-    First, think step by step about which answer is better.
+    First, think step by step about which answer is more similar to the true answer.
     If an answer contains factually incorrect information or contradicts the true answer
     it should be strongly penalized.
     If the question refers to a specific source, and the answer indicates that
@@ -51,8 +51,8 @@ JUDGE_SYSTEM_PROMPT = """
     more vague answer that provides general information.
 
     When you have made your decision, complete your response with the string
-    "ANSWER_A" if A is better, and "ANSWER_B" if B is better (exclude the
-    quotes).
+    "ANSWER_A" if the first answer is better, and "ANSWER_B" if the second
+    answer is better (exclude the quotes).
 """
 
 JUDGE_MODEL = "gpt-4o"  # We want to use a good model here.
@@ -164,7 +164,7 @@ async def judge_questions(
 ) -> AsyncIterator[JudgeResult]:
 
     judge_cache = Cache(f"cache/{JUDGE_MODEL}_judge_cache")
-    max_concurrency = 16
+    max_concurrency = 24
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async def judge_question(eval_question: EvalQuestion) -> JudgeResult:
@@ -214,11 +214,11 @@ async def judge_questions(
         yield await task
 
 
-TEST_DATASET = "outputs/zack6_test_output.csv"
-FINETUNED_MODEL = "2024nov14_arxiv_qa_data_3"
+TEST_DATASET = "/Users/zgrannan/Downloads/2024NOV14_llama_3_1_8b_test_output.csv"
+FINETUNED_MODEL = "2024nov14-llama-3-1-8b-lem"
 BASE_MODEL = "llama-3.2-3b-instruct"
 FINETUNED_MODEL_ENDPOINT = (
-    "https://lwylxx9n5zky48k6.us-east-1.aws.endpoints.huggingface.cloud"
+    "https://rhl2e87vb23micn9.us-east-1.aws.endpoints.huggingface.cloud"
 )
 FINETUNED_MODEL_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 
@@ -240,6 +240,7 @@ async def main():
             true_answer=entry["answer"],
         )
         for entry in finetune_entries
+        if entry["answer"] != "NO ANSWER FOUND" # Hack for cleanup, in the future these will be stripped earlier
     ]
 
     base_client = AsyncOpenAI(
