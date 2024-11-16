@@ -1,0 +1,43 @@
+\section{Conclusion}
+
+We expect that the performance of our approach, compared to traditional
+RAG-based approach, will depend on the extent to which the structure of the
+domain-specific data resembles the way it is used in an application. When the
+structure is similar, we expect RAG-based approaches to exhibit comparable
+performance, because the relevant data can be easily found using standard
+retrieval metrics based on the distance between embeddings. However, when the
+structure of the data is different, we expect our approach to yield better
+results: the "pre-processing" of the data via agentic workflows and subsequent
+fine-tuning on that data should hopefully allow the model to memorise the data
+in a way such that it can use it effectively later.
+
+
+\begin{table}[ht]
+    \centering
+    \begin{tabular}{|l|c|c|c|}
+        \hline
+        \textbf{Domain} & \textbf{Base Model} & \textbf{Base Model + RAG} & \textbf{Fine-tuned Model} \\ \hline
+        Domain A & 50\% & 70\% & 72\% \\ \hline
+        Domain B & 45\% & 60\% & 68\% \\ \hline
+        Domain C & 48\% & 62\% & 75\% \\ \hline
+    \end{tabular}
+    \caption{Percentage of Correct Answers - PLACEHOLDER}
+\end{table}
+
+\begin{table}[ht]
+    \centering
+    \begin{tabular}{|l|c|c|c|}
+        \hline
+        \textbf{Domain} & \textbf{Base Model} & \textbf{Base Model + RAG} & \textbf{Fine-tuned Model} \\ \hline
+        Domain A & 30\% & 20\% & 18\% \\ \hline
+        Domain B & 35\% & 25\% & 15\% \\ \hline
+        Domain C & 33\% & 24\% & 12\% \\ \hline
+    \end{tabular}
+    \caption{Hallucination Rate - PLACEHOLDER}
+\end{table}
+
+Previous research \cite{zhang_when_2024} has shown that model size is an
+important factor in fine-tuning outcomes, therefore we expect that the
+performance of our approach will be more sensitive to model size than RAG-based
+approaches. In a RAG-based system, the reduced model size would presumably only
+change the results to the extent that reasoning ability is compromised.
