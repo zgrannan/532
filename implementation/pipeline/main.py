@@ -108,10 +108,10 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             ),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .fan_out(
-            config.llm_parallelism,
-            AddSourceToQuestionAgent(config.llm_model, config.model_provider),
-        )
+        # .fan_out(
+        #     config.llm_parallelism,
+        #     AddSourceToQuestionAgent(config.llm_model, config.model_provider),
+        # )
         .fan_out(
             config.llm_parallelism,
             EnrichAgent(
@@ -139,10 +139,10 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             ).with_cache(f"cache/{config.config_name}_refine_question_cache"),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .fan_out(
-            config.llm_parallelism,
-            AddSourceToQuestionAgent(config.llm_model, config.model_provider),
-        )
+        # .fan_out(
+        #     config.llm_parallelism,
+        #     AddSourceToQuestionAgent(config.llm_model, config.model_provider),
+        # )
         .fan_out(
             config.llm_parallelism,
             GetRAGAnswerAgent(config.llm_model, config.vector_store),

@@ -35,11 +35,10 @@ The questions should follow these instructions:
 
 1. Generate a mix of 'what, why, summarize, where, how questions.
 2. Ensure the questions are diverse and cover the topics identified in the text.
-3. ALWAYS Include the source information in the questions.
-4. Connect main ideas and themes in the text to the questions.
-5. DO NOT INCLUDE anything other than the questions in the output.
-6. Generate questions that can be accurately answered based on the text provided.
-7. Extract the questions as a list in JSON format
+3. Connect main ideas and themes in the text to the questions.
+4. DO NOT INCLUDE anything other than the questions in the output.
+5. Generate questions that can be accurately answered based on the text provided.
+6. Extract the questions as a list in JSON format
 
 
 Below is an example
@@ -86,7 +85,7 @@ Your goal is to generate high-quality, detailed answers by following these instr
 3. Detail-Oriented: Highlight key elements like techniques, processes, models, or challenges, expanding on them for clarity.
 4. Organized Structure: Use clear paragraphs or points for complex answers.
 5. Clarity and Examples: Ensure the answer is precise and easy to follow. Include examples or quotes from the text when applicable.
-6. Include Sources: Clearly reference the source information at the end of the answer.
+6. If the answer is not found in the text, respond with "NO ANSWER FOUND"
 
 # Text:
 {text}
