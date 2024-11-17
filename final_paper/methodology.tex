@@ -4,18 +4,100 @@
   \item Quick summary of the methodology
 \end{itemize}
 
+In this section, we introduce our framework for generating synthetic data and fine-tuning LLMs on that data. 
+We also discuss the evaluation approach used to compare the performance of LLMs fine-tuned via our framework 
+with traditional RAG-based techniques.
+
+
 \subsection{Framework Architecture}
 \begin{itemize}
   \item Talk about the prompts and algorithm used to generate synthetic data
 \end{itemize}
 
+Our initial research drew inspiration from agentic-based frameworks like AgentInstruct % \citep{mitra_agentinstruct_2024}; 
+however during the development of our framework, we found opportunities to leverage a more streamlined and efficient approach.
+We developed a pipeline architecture that introduces more precise controls over the 
+synthetic data generation process while leveraging the power of small language models to create accurate
+and diverse synthetic data based on seed data.
+
+The pipeline consists of three main components: the \textit{Question Generator}, the \textit{Answer Generator}, and the \textit{QA Refinement Generator}.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{methodology-overview.png}
+  \caption{An overview of our synthetic data generation framework. Given a user-provided domain dataset, our
+framework will employ small language models to create a synthetic dataset that can be used 
+to fine-tune a SLM for downstream Question Answering tasks.}
+\end{figure}
+
+\subsubsection{Data Preparation}
+For the source dataset used in our framework, we used ArXiv papers published after 2024, specifically papers relevant to 
+small language models, fine-tuning LLM's and synthetic data generation.
+This choice was motivated by several factors including:
+\begin{itemize}
+  \item Recent papers ensure that the content was not part of the pre-training data for the LLMs used in our framework
+  \item The ease of access to the dataset, which is publicly available and well-structured
+  \item Academic papers provide structured factual content that can be used to generate questions and answers and as a proxy for 
+  domain-specific data in other applications
+\end{itemize}
+
+To prepare the data into our framework, we chunked each paper into a fixed size and extracted the title to be used in the 
+question generator. 
+
+\subsubsection{Question Generator}
+
+In the first step of the pipeline, the Question Generator takes the title of the paper along with a chunk of text from the paper
+and generates an initial set of questions that can be answered using the text. To facilitate the generation of diverse questions,
+we used a small language model to generate a mix of 'what', 'why', 'how', 'where', and 'summarize' questions, the full prompt can be found in the appendix?.
+
+For each question in our framework, we ensure that the title information is included in the question to serve as context during fine-tuning. We hypothesize 
+that by including the title in the question, the model will be able to better retrieve the correct answer during downstream zero-shot question answering tasks on the fine-tuned
+model. Intuitively, this serves as a form of conditioning for the language model during generation. <Should prove this with some data or results>
+
+To minimize generating duplicate or similar questions, we leverage a similarity check using the cosine similarity between the embeddings of the generated questions
+and remove questions that have high similar. 
+
+\subsubsection{Answer Generator}
+
+Following the generation of questions, the Answer Generator takes the generated questions and the corresponding text chunk and generates answers for each of the questions. 
+In this step, we prioritize factual accuracy, organized structure of the response, and clarity. This step can be seen as a simple form of question answering, where the model is
+tasked with generating the answer to a question given the context of the text chunk.
+
+\subsubsection{QA Refinement Generator}
+
+To refine each question-answer pair, we generate a new set of questions that are based on the original question and the answer pair 
+with the goal of generating questions that approaches the original question from a different angle. This step is critical in 
+generating more qa pairs while also generating questions that are more challenging and involve more reasoning than the original question. 
+
+We generate an answer for each of the refined questions using a similar process as the Answer Generator but using the original answer
+and smaller chunks retrieved from a similarity search as context. The extra step in retrieving smaller chunks of text is to ensure that the model
+has context to answer the question that is not directly in the original text chunk. Intuitively, we take inspiration from Retrieval Augmented Generation 
+(RAG) frameworks using vector databases to generate answers in the QA Refinement Generator.
+
+\subsubsection{Result}
+
+Upon completion of the pipeline, we have a set of question-answer pairs that can be used to fine-tune a small language model for downstream QA tasks. 
+We perform simple heuristics to ensure that questions that could not be answered or may not exist in the original text are removed from the dataset.
+
+\subsection{Algorithm}
+\begin{itemize}
+  \item Maybe breaking this out into an algorithm or a flowchart
+\end{itemize}
+
 \subsection{Implementation Details}
 \begin{itemize}
   \item Talk about technologies used, unsloth, LMStudio, etc.
+  \item How we finetuned, models used
+  \item Dataset
 \end{itemize}
+
+\subsubsection{Synthetic Data Generation Framework}
+
+
+\subsubsection{Fine-tuning}
 
 \subsection{Evaluation Approach}
 \begin{itemize}
-  \item How we evaluated the validity of our framework -> Hallucination check
-  \item Also talk about using LLM as a judge to compare finetuned LLM vs baseline RAG
+  \item How we evaluated the validity of our framework -> Hallucination check on generated data 
+  \item LM as a judge to compare finetuned LLM vs baseline RAG
 \end{itemize}
