@@ -1,6 +1,47 @@
 \section{Implementation}
 
 
-* Talk about the implementation details of the framework. 
-* Unsloth, LMStudio 
-* How we finetuned
+\begin{itemize}
+    \item Talk about technologies used, unsloth, LMStudio, etc. 
+    \item How we finetuned, models used
+    \item Dataset
+\end{itemize}
+
+\subsection{Synthetic Data Generation Framework}
+
+
+\subsection{Fine-tuning}
+
+\subsection{Evaluation Approach}
+\begin{itemize}
+\item How we evaluated the validity of our framework -> Hallucination check on generated data 
+\item LM as a judge to compare finetuned LLM vs baseline RAG
+\end{itemize}
+
+\subsubsection{Hallucination Check}
+
+As Large Language Models are increasingly relevant in Generative AI applications, the issue of hallucination has become a growing concern.
+Hallucination refers to the generation of text that is not supported by the input data, leading to incorrect or misleading information. 
+To ensure the validity of our synthetic data generation framework, we implemented a hallucination check to evaluate the quality of the generated data.
+Specifically, we leverage HHEM-2.1-Open % https://huggingface.co/vectara/hallucination_evaluation_model#using-hhem-21-open
+as our hallucination detection model, which has been shown to perform better than GPT-4 on hallucination detection tasks. 
+
+This model outputs a factual consistency score between 0 and 1, in which the higher the score, the more consistent the generated text is with the input data.
+To produce scores, both a response and the context used to generate the response are required as inputs to the model. 
+
+\begin{table}[h]
+\centering
+\caption{Factual Consistency Score Distribution}
+\begin{tabular}{lr}
+\hline
+Metric & Score \\
+\hline
+Mean & 0.78 \\
+Median & 0.81 \\
+Standard Deviation & 0.14 \\
+Minimum & 0.51 \\
+Maximum & 0.99 \\
+\hline
+\end{tabular}
+\label{tab:factual-consistency-scores}
+\end{table}
