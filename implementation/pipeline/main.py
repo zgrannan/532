@@ -19,6 +19,8 @@ from agent import (
 from entity_extraction import EntityExtractionAgent
 from helpers import list_of_dicts_to_dict_of_lists, upload_to_hf, slurp_iterator
 from agent import Agent, Cache, StatelessAgent
+from helpers import get_embedding_func
+from rag import EMBEDDING_MODEL, get_vector_store
 from pipeline_types import EnrichedPdfFile
 from question_answer import (
     QuestionWithChunk,
@@ -54,7 +56,7 @@ class PipelineConfig(BaseModel):
     rag_chunk_size: int = 500
     rag_chunk_overlap: int = 100
     batch_size: int = 10
-    test_ratio: float # Number of entries that should be used for testing only
+    test_ratio: float  # Number of entries that should be used for testing only
     llm_model: str
     embedding_model: str = "text-embedding-nomic-embed-text-v1.5@f32"
     vector_store: Chroma
@@ -230,7 +232,6 @@ async def main():
     config_name = args.config_name
     file_path = args.file_path
     # INPUTS
-    EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"  # on LM Studio
     LLM_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
     # LLM_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" # Together.ai
     # LLM_MODEL = "accounts/fireworks/models/llama-v3p1-8b-instruct" # fireworks
@@ -240,18 +241,8 @@ async def main():
     if args.upload and huggingface_api_key is None:
         raise ValueError("HUGGINGFACE_API_KEY is not set")
 
-    embedding_function = OpenAIEmbeddings(
-        model=EMBEDDING_MODEL,
-        base_url="http://localhost:1234/v1",
-        api_key=SecretStr("test"),
-        check_embedding_ctx_length=False,
-    )
-
-    vector_store = Chroma(
-        collection_name=config_name,
-        embedding_function=embedding_function,
-        persist_directory="./chroma_langchain_db",
-    )
+    embedding_function = get_embedding_func(EMBEDDING_MODEL)
+    vector_store = get_vector_store(config_name)
 
     pipeline_config = PipelineConfig(
         test_ratio=args.test_ratio,

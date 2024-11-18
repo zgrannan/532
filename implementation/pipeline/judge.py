@@ -15,6 +15,8 @@ from typing import AsyncIterator, Awaitable, TypedDict, List, Callable
 
 from agent import Cache
 from helpers import LM_STUDIO_BASE_URL
+from helpers import get_embedding_func
+from rag import EMBEDDING_MODEL, get_vector_store
 
 
 class BetterAnswer(Enum):
@@ -240,13 +242,19 @@ async def main():
             true_answer=entry["answer"],
         )
         for entry in finetune_entries
-        if entry["answer"] != "NO ANSWER FOUND" # Hack for cleanup, in the future these will be stripped earlier
+        if entry["answer"]
+        != "NO ANSWER FOUND"  # Hack for cleanup, in the future these will be stripped earlier
     ]
 
     base_client = AsyncOpenAI(
         base_url=BASE_MODEL_ENDPOINT,
         api_key=BASE_MODEL_API_KEY,
     )
+
+    config_name = "zack7"
+    vector_store = get_vector_store(config_name)
+    RAG_K = 3
+
     finetuned_client = AsyncOpenAI(
         base_url=FINETUNED_MODEL_ENDPOINT,
         api_key=FINETUNED_MODEL_API_KEY,
@@ -256,8 +264,14 @@ async def main():
     finetuned_cache = Cache(f"cache/{FINETUNED_MODEL}_judge_cache")
 
     async def get_base_response(question: str) -> str:
+        context = vector_store.similarity_search_with_score(question, k=RAG_K)
+        prompt = f"""Answer the following question based on the provided context:
+        Question: {question}
+        Context:
+        {context}
+        """
         return await base_cache.apply(
-            lambda: get_simple_response(base_client, BASE_MODEL, question), question
+            lambda: get_simple_response(base_client, BASE_MODEL, prompt), prompt
         )
 
     async def get_finetuned_response(question: str) -> str:

@@ -205,10 +205,10 @@ async def once(element: OnceT) -> AsyncGenerator[OnceT, None]:
     yield element
 
 
-def get_embedding_func(embedding_model) -> OpenAIEmbeddings:
+def get_embedding_func(embedding_model: str) -> OpenAIEmbeddings:
     return OpenAIEmbeddings(
         model=embedding_model,
-        base_url=os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL),
+        base_url="http://localhost:1234/v1",
         api_key=cast(SecretStr, os.getenv("LLM_CLIENT_API_KEY", "lm_studio")),
         check_embedding_ctx_length=False,  # https://github.com/langchain-ai/langchain/issues/21318
     )
