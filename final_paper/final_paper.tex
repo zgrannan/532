@@ -28,6 +28,34 @@
 \usepackage{xcolor}         % colors
 \usepackage{graphicx}
 \usepackage[numbers]{natbib}
+\usepackage{listings}
+\lstdefinestyle{pythonstyle}{
+    language=Python,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{green!50!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    stepnumber=1,
+    numbersep=10pt,
+    backgroundcolor=\color{yellow!10},
+    frame=single,
+    tabsize=4,
+    captionpos=b,
+    breaklines=true,
+    breakatwhitespace=false,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    morekeywords={self}  % Add keywords if needed
+}
+\lstset{style=pythonstyle}
+\newcommand{\stream}[1]{\ensuremath{\mathcal{S}_{#1}}}
+\newcommand{\streamty}[1]{\ensuremath{{#1}^{\omega}}}
+\newcommand{\agent}{A}
+\newcommand{\agentin}[1]{\ensuremath{\mathit{input}(#1)}}
+\newcommand{\agentout}[1]{\ensuremath{\mathit{output}(#1)}}
 
 \title{Final Paper: A Framework for Leveraging Small Language Models for Synthetic Data Generation for
 Fine-Tuning}
@@ -53,11 +81,17 @@ Fine-Tuning}
 \begin{abstract}
 Synthetic data is now commonly used in LLM post-training. However, there has
 been less research into the use of domain-specific synthetic data for
-fine-tuning purpose-built LLMs. We propose the development of an open-source
-agentic framework, in the style of AgentInstruct
-\citep{mitra_agentinstruct_2024}, to automatically generate synthetic data for
-domain-specific LLM fine-tuning. We will come the performance of LLMs fine-tuned
-via our framework to traditional RAG-based approaches.
+fine-tuning purpose-built LLMs. In this work, we develop an agentic framework,
+in the style of AgentInstruct \citep{mitra_agentinstruct_2024}, that facilitates
+the generation of synthetic data for domain-specific LLM fine-tuning. Our
+framework provides an API for defining agents and a declarative interface for
+coordinating agents in data generation pipeline. Our framework facilitates
+compositionality: for example, the caching of intermediate results in a pipeline
+can be accomplished by adding a general-purpose caching agent rather than
+modifying application code.  We evaluate our framework by using it to fine-tune
+a model to answer questions about machine-learning papers. On a question-answer
+task, our resulting fine-tuned model has performance comparable to an
+alternative RAG-based approach.
 \end{abstract}
 
 \input{introduction}
