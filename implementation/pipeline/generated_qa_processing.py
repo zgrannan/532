@@ -1,10 +1,13 @@
 from agent import Agent, MapAgent, StatelessAgent, OpenAIAgent
 from agent import ModelProvider
 from pipeline_types import (
+    HasQuestion,
+    HasSource,
+    HasSourceType,
     FinetuneEntry,
     EnrichedPdfChunkWithQuestion,
 )
-from typing import AsyncIterator
+from typing import AsyncIterator, TypeVar, Protocol
 from langchain_openai import OpenAIEmbeddings
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -33,15 +36,17 @@ class EmbeddingsAgent(MapAgent[str, list[float]]):
     async def handle(self, input: str) -> list[float]:
         return await self.embeddings_func.aembed_query(input)
 
-class RemoveSimilarQuestionsAgent(Agent[FinetuneEntry, FinetuneEntry]):
+HasQuestionT = TypeVar("HasQuestionT", bound=HasQuestion)
+
+class RemoveSimilarQuestionsAgent(Agent[HasQuestionT, HasQuestionT]):
     def __init__(self, embeddings_func: OpenAIEmbeddings, threshold: float):
         super().__init__("Remove Similar Questions Agent")
         self.embed_agent = EmbeddingsAgent(embeddings_func)
         self.threshold = threshold
 
     async def _process(
-        self, inputs: AsyncIterator[FinetuneEntry]
-    ) -> AsyncIterator[FinetuneEntry]:
+        self, inputs: AsyncIterator[HasQuestionT]
+    ) -> AsyncIterator[HasQuestionT]:
         input_list = await slurp_iterator(inputs)
         embeddings = [
             await self.embed_agent.handle(input["question"]) for input in input_list
@@ -113,19 +118,23 @@ Source Type:
 {source_type}
 """
 
+
 class SourceInQuestion(BaseModel):
     question: str
 
+
+AddSourceToQuestionT = TypeVar("AddSourceToQuestionT", EnrichedPdfChunkWithQuestion, FinetuneEntry)
+
 class AddSourceToQuestionAgent(OpenAIAgent,
-                               StatelessAgent[FinetuneEntry, FinetuneEntry]):
+                               StatelessAgent[AddSourceToQuestionT, AddSourceToQuestionT]):
     def __init__(self, model: str, model_provider: ModelProvider = "LMStudio"):
         super().__init__(model=model, model_provider=model_provider)
         StatelessAgent.__init__(self, name="Add Source to Question Agent")
 
 
     async def process_element(
-        self, input: FinetuneEntry
-    ) -> AsyncIterator[FinetuneEntry]:
+        self, input: AddSourceToQuestionT
+    ) -> AsyncIterator[AddSourceToQuestionT]:
         if self.model_provider == "LMStudio":
             response_format = SourceInQuestion
         else:
@@ -152,7 +161,6 @@ class AddSourceToQuestionAgent(OpenAIAgent,
         )
         logging.debug(f"Original Question: {input['question']}")
         logging.debug(f"Modified Question: {resp.question}")
-        yield {
-            **input,
-            "question": resp.question
-        }
+        result: AddSourceToQuestionT = input.copy()
+        result["question"] = resp.question
+        yield result

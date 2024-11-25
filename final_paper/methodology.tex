@@ -40,17 +40,16 @@ list of numbers in the range $[0, 10]$ is a stream $\stream{\mathbb{N}}$.
 
 An \emph{agent} $\agent : \streamty{\mathcal{T}} \rightarrow
 \streamty{\mathcal{U}}$ is a nondeterministic function that maps an \emph{input
-stream} $\stream{\mathcal{T}}$ to an output stream $\stream{\mathcal{U}}$, we
-use $\agentin{\agent}$ and $\agentout{\agent}$ to denote the type of $\agent$'s
-input and output streams respectively.
+stream} $\stream{\mathcal{T}}$ to an output stream $\stream{\mathcal{U}}$.
 
-A \emph{pipeline} is a connected directed graph of agents, containing a
-unique \emph{source agent} $\agent{}_{\mathit{source}}$ and a unique \emph{sink
-agent} $\agent_{\mathit{sink}}$. We note that the source and sink agent are not
+A \emph{pipeline} is a connected directed graph of agents, containing a unique
+\emph{source agent} $\agent{}_{\mathit{source}} : \streamty{\mathcal{T}}
+\rightarrow \streamty{\mathcal{U}}$ and a unique \emph{sink agent}
+$\agent_{\mathit{sink}} : \streamty{\mathcal{T}'} \rightarrow
+\streamty{\mathcal{U}'}$. We note that the source and sink agent are not
 necessarily distinct: the simplest pipeline is one consisting of a single agent.
-A pipeline defines a nondeterminstic function that maps a stream of type
-$\agentin{\agent_{\mathit{source}}}$ to a stream of type
-$\agentin{\agent_{\mathit{sink}}}$.
+A pipeline defines a nondeterminstic function $\streamty{\mathcal{T}}
+\rightarrow \streamty{\mathcal{U}'}$.
 
 \subsection{Python Implementation}
 
@@ -77,7 +76,11 @@ using Python's async generator syntax\footnote{For more details see
 our implementation by the abstract class \texttt{Agent[T, U]} (which extends the
 \texttt{Pipeline[T, U]} class).
 
-Our library includes built-in TODO continue this part
+Our library includes built-in classes to facilitate the construction of agents
+and pipelines in the framework. Here we present some highlights:
+
+\subsubsection{Parallelism}
+
 
 \begin{itemize}
   \item Quick summary of the methodology

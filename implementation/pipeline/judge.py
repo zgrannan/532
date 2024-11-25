@@ -302,8 +302,7 @@ async def main():
     print(f"Base Model Wins: {base_wins}")
     print(f"Fine-tuned Model Wins: {finetuned_wins}")
     print(f"Total Comparisons: {len(results)}")
-    if len(results) > 0:
-        print(f"Fine-tuned Win Rate: {(finetuned_wins/len(results))*100:.1f}%")
+    print(f"Fine-tuned Win Rate: {(finetuned_wins/len(results))*100:.1f}%")
 
 
 if __name__ == "__main__":

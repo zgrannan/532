@@ -72,7 +72,7 @@ async def get_json_response_async(
     client: AsyncOpenAI,
     model: str,
     messages: List[ChatCompletionMessageParam],
-    response_format: type[T],
+    response_format: type[T] | dict[str, Any],
     temperature: float = 0.0,
     agent_name: str = "",  # for track_llm_usage
     max_tokens: int = MAX_TOKENS,
@@ -82,12 +82,12 @@ async def get_json_response_async(
         messages=messages,
         model=model,
         temperature=temperature,
-        response_format=response_format,
+        response_format=cast(type[T], response_format),
         max_tokens=max_tokens,
         **kwargs,
     )
 
-    return response
+    return cast(T, response)
 
 
 @retry(

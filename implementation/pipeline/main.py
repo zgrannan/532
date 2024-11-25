@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import random
@@ -20,6 +21,8 @@ from entity_extraction import EntityExtractionAgent
 from helpers import list_of_dicts_to_dict_of_lists, upload_to_hf, slurp_iterator
 from agent import Agent, Cache, StatelessAgent
 from helpers import get_embedding_func
+from agent import Pipeline
+from pipeline_types import EnrichedPdfChunkWithQuestion
 from rag import EMBEDDING_MODEL, get_vector_store
 from pipeline_types import EnrichedPdfFile
 from question_answer import (
@@ -45,7 +48,8 @@ import logging
 load_dotenv(find_dotenv())
 
 
-class PipelineConfig(BaseModel):
+class ConfigSettings(BaseModel):
+    include_source: bool = True
     max_documents: int = 50  # Maximum number of documents to process
     llm_parallelism: int = 20  # Number of LLM calls to run in parallel
     max_base_questions_per_chunk: int = (
@@ -59,9 +63,12 @@ class PipelineConfig(BaseModel):
     test_ratio: float  # Number of entries that should be used for testing only
     llm_model: str
     embedding_model: str = "text-embedding-nomic-embed-text-v1.5@f32"
+    config_name: str
+
+
+class PipelineConfig(ConfigSettings):
     vector_store: Chroma
     embedding_function: OpenAIEmbeddings
-    config_name: str
     model_provider: Literal["LMStudio", "TogetherAI", "FireworksAI"] = "LMStudio"
 
     class Config:
@@ -92,8 +99,14 @@ def create_embedding_pipeline(config: PipelineConfig) -> Any:
     )
 
 
-def create_qa_pipeline(config: PipelineConfig) -> Any:
+def create_qa_pipeline(config: PipelineConfig) -> Pipeline[str, FinetuneEntry]:
     """Main Pipeline for generating Q/A pairs"""
+
+    # For some reason extracting this to a variable is necessary to satisfy mypy
+    add_source_stage1: Agent[
+        EnrichedPdfChunkWithQuestion, EnrichedPdfChunkWithQuestion
+    ] = AddSourceToQuestionAgent(config.llm_model, config.model_provider)
+
     return (
         enrich_pdf_file_agent(config)
         .and_then(
@@ -110,9 +123,9 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             ),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .fan_out(
-            config.llm_parallelism,
-            AddSourceToQuestionAgent(config.llm_model, config.model_provider),
+        .and_then_if(
+            config.include_source,
+            add_source_stage1.parallelize(config.llm_parallelism),
         )
         .fan_out(
             config.llm_parallelism,
@@ -141,9 +154,11 @@ def create_qa_pipeline(config: PipelineConfig) -> Any:
             ).with_cache(f"cache/{config.config_name}_refine_question_cache"),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
-        .fan_out(
-            config.llm_parallelism,
-            AddSourceToQuestionAgent(config.llm_model, config.model_provider),
+        .and_then_if(
+            config.include_source,
+            AddSourceToQuestionAgent(
+                config.llm_model, config.model_provider
+            ).parallelize(config.llm_parallelism),
         )
         .fan_out(
             config.llm_parallelism,
@@ -199,11 +214,21 @@ async def generate_finetune_entries_for_files_in_directory(
     return results
 
 
+REPO_ID = "CPSC532/arxiv_qa_data"
+DEFAULT_LLM_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
+DEFAULT_EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"
+
+
 async def main():
     start_time = time.time()
 
     # parse arguments
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config_file",
+        type=str,
+        help="Path to the config file to use",
+    )
     parser.add_argument(
         "--config_name",
         type=str,
@@ -217,47 +242,47 @@ async def main():
         help="Path to the directory containing PDF files (default: ../data)",
     )
     parser.add_argument(
-        "--test_ratio",
-        type=float,
-        default=0.1,
-        help="Ratio of test data to use (default: 0.1)",
-    )
-    parser.add_argument(
         "--no-upload",
         action="store_false",
         dest="upload",
         help="Do not upload to Hugging Face",
     )
     args = parser.parse_args()
-    config_name = args.config_name
     file_path = args.file_path
-    # INPUTS
-    LLM_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
-    # LLM_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" # Together.ai
-    # LLM_MODEL = "accounts/fireworks/models/llama-v3p1-8b-instruct" # fireworks
-    # Hugging Face
-    repo_id = "CPSC532/arxiv_qa_data"
+    if args.config_file is not None:
+        with open(args.config_file, "r") as f:
+            config_settings = ConfigSettings(**json.load(f)["pipeline_config"])
+    else:
+        config_settings = ConfigSettings(
+            test_ratio=args.test_ratio,
+            document_chunk_size=5000,
+            document_chunk_overlap=100,
+            rag_chunk_size=500,
+            rag_chunk_overlap=100,
+            batch_size=10,
+            llm_model=DEFAULT_LLM_MODEL,
+            embedding_model=DEFAULT_EMBEDDING_MODEL,
+            config_name=args.config_name,
+        )
+
+    pipeline_config = PipelineConfig(
+        test_ratio=config_settings.test_ratio,
+        document_chunk_size=config_settings.document_chunk_size,
+        document_chunk_overlap=config_settings.document_chunk_overlap,
+        rag_chunk_size=config_settings.rag_chunk_size,
+        rag_chunk_overlap=config_settings.rag_chunk_overlap,
+        batch_size=config_settings.batch_size,
+        llm_model=config_settings.llm_model,
+        embedding_model=config_settings.embedding_model,
+        config_name=config_settings.config_name,
+        embedding_function=get_embedding_func(config_settings.embedding_model),
+        vector_store=get_vector_store(config_settings.config_name),
+        model_provider="LMStudio",
+    )
+
     huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
     if args.upload and huggingface_api_key is None:
         raise ValueError("HUGGINGFACE_API_KEY is not set")
-
-    embedding_function = get_embedding_func(EMBEDDING_MODEL)
-    vector_store = get_vector_store(config_name)
-
-    pipeline_config = PipelineConfig(
-        test_ratio=args.test_ratio,
-        document_chunk_size=5000,
-        document_chunk_overlap=100,
-        rag_chunk_size=500,
-        rag_chunk_overlap=100,
-        batch_size=10,
-        llm_model=LLM_MODEL,
-        embedding_model=EMBEDDING_MODEL,
-        vector_store=vector_store,
-        embedding_function=embedding_function,
-        config_name=config_name,
-        model_provider="LMStudio",
-    )
 
     # First stage getting initial Q/A Pairs
     finetune_entries = await generate_finetune_entries_for_files_in_directory(
@@ -303,8 +328,12 @@ async def main():
     # if outputs folder doesn't exist, create it
     if not os.path.exists("outputs"):
         os.makedirs("outputs")
-    test_df.to_csv(f"outputs/{config_name}_test_output.csv", index=False)
-    train_df.to_csv(f"outputs/{config_name}_train_output.csv", index=False)
+    test_df.to_csv(
+        f"outputs/{pipeline_config.config_name}_test_output.csv", index=False
+    )
+    train_df.to_csv(
+        f"outputs/{pipeline_config.config_name}_train_output.csv", index=False
+    )
 
     if args.upload:
         # Upload to Huggingface
@@ -315,9 +344,9 @@ async def main():
 
         upload_to_hf(
             data=qa_pairs_dict,
-            repo_id=repo_id,
+            repo_id=REPO_ID,
             api_key=huggingface_api_key,
-            config_name=config_name,
+            config_name=pipeline_config.config_name,
         )
 
     end_time = time.time()
@@ -325,7 +354,7 @@ async def main():
     print(
         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Total time: {end_time - start_time} seconds"
     )
-    tracker.save_to_file(config_name)
+    tracker.save_to_file(pipeline_config.config_name)
 
 
 if __name__ == "__main__":

@@ -87,8 +87,15 @@ class Pipeline(ABC, Generic[Input, Output]):
     ) -> "Pipeline[Input, V]":
         return self.and_then(ParallelAgent(max_parallelism, agent))
 
+
     def map(self, func: Callable[[Output], V]) -> "FuncAgent[Input, Output, V]":
         return FuncAgent(self, func)
+
+    def and_then_if(self, condition: bool, next: "Pipeline[Output, Output]") -> "Pipeline[Input, Output]":
+        if condition:
+            return self.and_then(next)
+        else:
+            return self
 
     def and_then(self, next: "Pipeline[Output, V]") -> "Compose[Input, Output, V]":
         return Compose(self, next)
@@ -181,6 +188,9 @@ class Agent(Pipeline[Input, Output], Generic[Input, Output]):
 
     def nodes(self) -> Dict[int, str]:
         return {self.id: self.name}
+
+    def parallelize(self, max_parallelism: int) -> "ParallelAgent[Input, Output]":
+        return ParallelAgent(max_parallelism, self)
 
 
 class StatelessAgent(Agent[Input, Output]):

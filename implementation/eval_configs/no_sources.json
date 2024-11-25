@@ -1,0 +1,16 @@
+{
+  "pipeline_config": {
+    "config_name": "no_sources",
+    "include_source": false,
+    "max_documents": 50,
+    "max_questions_per_chunk": 10,
+    "test_ratio": 0.1,
+    "document_chunk_size": 5000,
+    "document_chunk_overlap": 100,
+    "rag_chunk_size": 500,
+    "rag_chunk_overlap": 100,
+    "batch_size": 10,
+    "llm_model": "gpt-4o-mini",
+    "embedding_model": "text-embedding-nomic-embed-text-v1.5@f32"
+  }
+}
