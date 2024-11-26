@@ -72,3 +72,38 @@ The results support the notion that providing contextual information in the ques
 We also find that Model 2 is able to outperform Model 1 when evaluated on Dataset 1 by a slim margin, 
 suggesting that the model generalizes better than Model 1. We perform this experiment on a fine-tuned Llama 3.2 3B model with 
 LoRA rank = 128. See the appendix for further results on different LoRA ranks.
+
+\begin{table}[h!]
+    \centering
+    \caption{Cosine Similarity Statistics for Model and Data Combinations Across Different LoRA rank R}
+    \label{tab:cosine_similarity_context_sizes}
+    \begin{tabular}{clccccc}
+    \toprule
+    \textbf{Test Set} & \textbf{R} & \textbf{Model} & \textbf{Mean} & \textbf{Std Dev} & \textbf{Min} & \textbf{Max} \\
+    \midrule
+    \centering Dataset 2 & 16  & Model 1 & 0.6983 & 0.1188 & 0.3872 & 0.9691 \\ 
+    & 16  & Model 2 & 0.7670 & 0.1265 & 0.4052 & 0.9722 \\ 
+    \addlinespace[0.5em]
+    & 32  & Model 1 & 0.7710 & 0.1234 & 0.3907 & 0.9596 \\ 
+    & 32  & Model 2 & 0.7120 & 0.1111 & 0.4141 & 0.9403 \\ 
+    \addlinespace[0.5em]
+    & 64  & Model 1 & 0.7016 & 0.1136 & 0.4067 & 0.9521 \\ 
+    & 64  & Model 2 & 0.7077 & 0.1228 & 0.3803 & 0.9720 \\ 
+    \addlinespace[0.5em]
+    & 128 & Model 1 & 0.6949 & 0.1127 & 0.3900 & 0.9661 \\ 
+    & 128 & Model 2 & 0.7200 & 0.1211 & 0.3914 & 0.9708 \\ 
+    \midrule
+    \centering Dataset 1 & 16  & Model 1 & 0.7669 & 0.1164 & 0.4498 & 0.9656 \\ 
+    & 16  & Model 2 & 0.8120 & 0.1128 & 0.4776 & 0.9678 \\ 
+    \addlinespace[0.5em]
+    & 32  & Model 1 & 0.8201 & 0.1160 & 0.4627 & 0.9790 \\ 
+    & 32  & Model 2 & 0.7633 & 0.1204 & 0.4601 & 0.9748 \\ 
+    \addlinespace[0.5em]
+    & 64  & Model 1 & 0.7643 & 0.1134 & 0.4982 & 0.9780 \\ 
+    & 64  & Model 2 & 0.7681 & 0.1130 & 0.4603 & 0.9816 \\ 
+    \addlinespace[0.5em]
+    & 128 & Model 1 & 0.7662 & 0.1165 & 0.5043 & 0.9830 \\ 
+    & 128 & Model 2 & 0.7747 & 0.1162 & 0.5186 & 0.9726 \\ 
+    \bottomrule
+    \end{tabular}
+\end{table}
