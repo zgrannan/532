@@ -12,7 +12,10 @@ However, RAG systems have corresponding disadvantages. In particular,
 incorporating a RAG architecture increases application and infrastructure
 complexity.
 
-Fine-tuning presents another approach. In the fine-tuning paradigm, the parameters of the LLM itself are modified by training the LLM on additional content. The fine-tuned LLM can be used as a "drop-in" replacement for a base language model: no changes to architecture or software are required.
+Fine-tuning presents another approach. In the fine-tuning paradigm, the
+parameters of the LLM itself are modified by training the LLM on additional
+content. The fine-tuned LLM can be used as a "drop-in" replacement for a base
+language model: no changes to architecture or software are required.
 
 Previous work \citep{balaguer_rag_2024,yang_fingpt_2023,wu_pmc-llama_2023} has
 proposed methods for fine-tuning specialised LLMs, and techniques have been
@@ -27,8 +30,10 @@ cases, and the AgentInstruct code is not readily available.
 For this project, we make the following contributions:
 
 \begin{enumerate}
-\item We develop an agentic framework (in the style of AgentInstruct) that can
-automatically generate synthetic data and fine-tune an LLM on that data, and
-\item Evaluate the performance of LLMs fine-tuned via our framework compared to
-traditional RAG based techniques
+\item We develop an agentic framework (in the style of AgentInstruct) for the purpose
+of generating synthetic data for LLM fine-tuning (\secref{framework})
+\item We use our framework to develop a synthetic data generation pipeline for question-answering tasks
+(\secref{pipeline})
+\item We use our pipeline to fine-tune various models to perform QA tasks (\secref{implementation}), and show that
+the resulting models performance is comparable to RAG-based approaches (Sec. \ref{sec:evaluation}, \ref{sec:results})
 \end{enumerate}
