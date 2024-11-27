@@ -10,7 +10,7 @@ To run inference locally, we deployed the models locally using LMStudio, an appl
 For question generation in our framework, we used JSON Mode to allow for easy extraction of the generated questions. While for answer generation, we used the default
 mode to allow for diverse answers. Initial experiments were also attempted with JSON mode for both question and answer extraction but the question and answers
 were found to be very basic and not diverse enough. This follows the study from \cite{tam2024letspeakfreelystudy} that found that structured generation and format constraints
-generally lead to greater performance degradation in LLMs.
+generally lead to greater performance degradation in LLMs. We set temperature to 0 for all pipeline components to minimize hallucinations and randomness in the generation process.
 
 The embedding models and the vector database that we used were nomic-embed-text-v1.5 and ChromaDB respectively.
 
