@@ -4,7 +4,7 @@
 \subsection{Synthetic Data Generation Framework}
 
 We chose Llama 3.1 8B as our LLM in our synthetic data generation framework, which is one the largest model that could fit on a single NVIDIA-3080. Initial experiments
-were also attempted with META's recent Llama 3.2 3B model <Add source> but was found to hallucinate more frequently than the 8B model and couldn't follow the instruction prompts as well.
+were also attempted with Meta's recent Llama 3.2 3B model <Add source> but was found to hallucinate more frequently than the 8B model and couldn't follow the instruction prompts as well.
 To run inference locally, we deployed the models locally using LMStudio, an application that allows for easy deployment of large language models on local machines.
 
 For question generation in our framework, we used JSON Mode to allow for easy extraction of the generated questions. While for answer generation, we used the default
@@ -14,18 +14,73 @@ generally lead to greater performance degradation in LLMs.
 
 The embedding models and the vector database that we used were nomic-embed-text-v1.5 and ChromaDB respectively.
 
-\subsection{Fine-tuning}
+\subsection{Dataset}
 
 \begin{itemize}
-    \item Talk about technologies used, unsloth, LMStudio, etc.
-    \item Dive into Unsloth, parameters chosen for finetuning, etc.
+   \item Mention the dataset used, number of questions that got generated from the framework, tokens, etc.
 \end{itemize}
 
+
+\subsection{Fine-tuning}
+
+
+For the base model for fine-tuning, we chose Llama 3.2 3B model, which is smaller model than Llama 3.1 8B model used in the synthetic data generation framework and more 
+recently relased from Meta. This model also outperforms other small language models such as Gemma 2 2.6B and Phi 3.5-mini on various tasks.
+
+We chose Unsloth for LoRA finetuning, which is an open-source framework designed to reduce memory usage and increase training speed for large language models such as Llama, Mistral, 
+Phi, and Qwen model families. The optimized framework, which is built upon custom Triton kernels for backpropagation steps, enables up to 70\% memory savings without decreases in 
+accuracy, which makes it suitable for fine-tuning large language models on consumer grade GPU's and environments such as Google Colab. 
+
+The parameters used for fine-tuning are shown in Table \ref{tab:lora-parameters}. In our results, we evaluate the performance of the model when fine-tuned with various rank $\mathit{r}$ values.
+The number of parameters for the LoRA adapters trained are shown in Table \ref{tab:rank-params}.
+
+
+\begin{table}[t]
+    \centering
+    \caption{Unsloth LoRA Fine-Tuning Parameters for Llama 3.2 3B}
+    \label{tab:lora-parameters}
+    \begin{tabular}{l p{2cm} p{8.2cm}}
+    \toprule
+    \textbf{Parameter} & \textbf{Value} & \textbf{Description} \\
+    \midrule
+    \texttt{r} & 16, 32, 64, 128 & Rank of the low-rank matrices. Higher values retain more information but increase computational load. \\
+    \addlinespace[3pt]
+    \texttt{target\_modules} & q\_proj, k\_proj, v\_proj, o\_proj, gate\_proj, up\_proj, down\_proj & 
+    Layers targeted for LoRA adaptation. \\
+    \addlinespace[3pt]
+    \texttt{lora\_alpha} & 16 & Scaling factor for the LoRA updates. Higher values can speed up convergence but may risk instability. \\
+    \addlinespace[3pt]
+    \texttt{lora\_dropout} & 0 & Probability of zeroing out elements in LoRA layers during training for regularization. A value of 0 means no dropout. \\
+    \addlinespace[3pt]
+    \texttt{bias} & none & Determines how biases are handled in LoRA layers. Setting to ``none'' excludes biases, optimizing memory usage. \\
+    \addlinespace[3pt]
+    \texttt{use\_rslora} & True & Enables Rank-Stabilized LoRA, which adjusts the scaling factor to \texttt{lora\_alpha / sqrt(r)}, improving training stability. \\
+    \bottomrule
+    \end{tabular}
+ \end{table}
+
+ \begin{table}[t]
+    \centering
+    \caption{LoRA Parameter Efficiency Analysis}
+    \label{tab:rank-params}
+    \begin{tabular}{l r r}
+    \toprule
+    \textbf{Rank (r)} & \textbf{Parameters} & \textbf{\shortstack{Trainable Ratio (\%)\\to base model}} \\
+    \midrule
+    16 & 24.3M & 0.76\% \\
+    32 & 48.6M & 1.51\% \\
+    64 & 97.0M & 3.02\% \\
+    128 & 194.0M & 6.04\% \\
+    \bottomrule
+    \end{tabular}
+\end{table}
 \subsection{Evaluation Approach}
 \begin{itemize}
 \item How we evaluated the validity of our framework -> Hallucination check on generated data
 \item LM as a judge to compare finetuned LLM vs baseline RAG
 \end{itemize}
+
+
 
 \subsubsection{Hallucination Check}
 
