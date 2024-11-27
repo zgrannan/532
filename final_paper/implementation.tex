@@ -19,8 +19,52 @@ The embedding models and the vector database that we used were nomic-embed-text-
 \begin{itemize}
    \item Mention the dataset used, number of questions that got generated from the framework, tokens, etc.
 \end{itemize}
+For our dataset, we picked 10 ArXiv papers published after 2024, specifically papers relevant to small language models, fine-tuning LLM's and synthetic data generation. 
+Using our framework, we generated a total of 1749 questions using a total of ~7.69M LLM tokens and averaging approximately 4.3k total tokens per question generated. 
+The breakdown of the number of questions generated and their corresponding page counts can be found in Table \ref{tab:questions_and_pages} and the token usage 
+for each pipeline component can be found in Table \ref{tab:pipeline_tokens}. Estimating inference cost from cloud providers at \$0.20 per 1 million tokens, 
+the total cost of generating questions for the dataset would be approximately \$1.54. This further highlights the enormous cost savings that can be achieved 
+by leveraging small language models for data generation for question answering tasks.
 
+\begin{table}[t]
+   \centering
+   \caption{Papers, number of questions generated, and their corresponding page counts.}
+   \label{tab:questions_and_pages}
+   \begin{tabular}{p{8cm} r r}
+   \toprule
+   \textbf{Paper Name} & \textbf{Questions Generated} & \textbf{Pages} \\
+   \midrule
+   What is the Role of Small Models in the LLM Era: A Survey & 283 & 25 \\
+   Does Fine-Tuning LLMs on New Knowledge Encourage Hallucinations? & 233 & 20 \\
+   AgentInstruct Toward Generative Teaching With Agentic Flows & 218 & 32 \\
+   Small Language Models: Survey, Measurements, and Insights & 215 & 22 \\
+   LONGCITE: ENABLING LLMS TO GENERATE FINEGRAINED CITATIONS IN LONG-CONTEXT QA & 182 & 24 \\
+   WHEN SCALING MEETS LLM FINETUNING: THE EFFECT OF DATA, MODEL, AND FINETUNING METHOD & 150 & 20 \\
+   Finetuning LLMs for Enterprise: Practical Guidelines and Recommendations & 146 & 17 \\
+   Orca-Math: Unlocking the potential of SLMs in Grade School Math & 113 & 14 \\
+   From Artificial Needles to Real Haystacks: Improving Retrieval Capabilities in LLMs by Finetuning on Synthetic Data & 105 & 13 \\
+   RAFT: Adapting Language Model to Domain Specific RAG & 104 & 12 \\
+   \bottomrule
+   \end{tabular}
+\end{table}
 
+\begin{table}[t]
+   \centering
+   \caption{Token Usage for each Pipeline Components}
+   \label{tab:pipeline_tokens}
+   \small
+   \begin{tabular}{l r r r r}
+   \toprule
+   Pipeline Component & Mean & Mean & Mean & \# of \\
+   & Prompt Tokens & Completion Tokens & Total Tokens & LLM Calls \\
+   \midrule
+   Question Generation & 2,988 & 456 & 3,444 & 79 \\
+   Answer Generation & 4,453 & 327 & 4,780 & 351 \\
+   Question Answer Refinement & 2,512 & 382 & 2,895 & 1790 \\
+   Add Source to Question Agent & 215 & 52 & 268 & 2100 \\
+   \bottomrule
+   \end{tabular}
+\end{table}
 \subsection{Fine-tuning}
 
 
