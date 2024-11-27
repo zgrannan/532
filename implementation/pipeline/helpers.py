@@ -18,6 +18,26 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def get_pipeline_config_name(include_source: bool, model: str) -> str:
+    return f"src_{include_source}_llm_{model}".replace("/", "-")
+
+def get_output_model_name(pipeline_config_name: str, r: int) -> str:
+    return f"{pipeline_config_name}_r{r}"
+
+def get_response_format(model_provider: str, typ: type[BaseModel]) -> Any:
+    if (
+        model_provider == "LMStudio"
+        or model_provider == "OpenAI"
+        or model_provider == "HuggingFace"
+    ):
+        return typ
+    else:
+        return {
+            "type": "json_object",
+            "schema": typ.model_json_schema(),
+        }
+
+
 def timing_decorator(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()  # Record the start time
@@ -178,24 +198,9 @@ def remove_duplicates(strings_list: List[str]) -> List[str]:
     return list(set(strings_list))
 
 
-def get_openai_client() -> OpenAI:
-    return OpenAI()
-
-
-def get_default_client() -> OpenAI:
-    base_url = os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL)
-    api_key = os.getenv("LLM_CLIENT_API_KEY", "lm_studio")
-    return OpenAI(base_url=base_url, api_key=api_key)
-
-
-def get_async_client() -> AsyncOpenAI:
-    base_url = os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL)
-    api_key = os.getenv("LLM_CLIENT_API_KEY", "lm_studio")
+def get_async_client(base_url: str, api_key: str) -> AsyncOpenAI:
+    print(f"!!!! base_url: {base_url}, api_key: {api_key}")
     return AsyncOpenAI(base_url=base_url, api_key=api_key)
-
-
-def get_model(default_model: str) -> str:
-    return os.getenv("LLM_CLIENT_OVERRIDE_MODEL", default_model)
 
 
 OnceT = TypeVar("OnceT")

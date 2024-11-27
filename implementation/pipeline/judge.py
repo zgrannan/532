@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 from openai import AsyncOpenAI
 import pandas as pd
@@ -7,17 +8,12 @@ import os
 from pydantic import SecretStr
 from helpers import (
     get_simple_response,
-    get_openai_client,
-    get_model,
-    get_async_client,
-    get_default_client,
 )
 from enum import Enum
 from typing import AsyncIterator, Awaitable, TypedDict, List, Callable
 
 from agent import Cache
-from helpers import LM_STUDIO_BASE_URL
-from helpers import get_embedding_func
+from helpers import get_output_model_name, get_pipeline_config_name
 from rag import EMBEDDING_MODEL, get_vector_store
 import requests
 
@@ -78,7 +74,7 @@ async def judge(
     # Use default OpenAI client for gpt4
     client = AsyncOpenAI()
 
-    response = await get_simple_response(client, get_model(JUDGE_MODEL), prompt)
+    response = await get_simple_response(client, JUDGE_MODEL, prompt)
 
     if response.strip().endswith("ANSWER_A"):
         return BetterAnswer.A, response
@@ -293,6 +289,15 @@ def create_endpoint(options: PayloadOptions):
     pass
 
 
+def delete_endpoint(endpoint_name: str):
+    url = f"https://api.endpoints.huggingface.cloud/v2/endpoint/zgrannan/{endpoint_name}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {BASE_MODEL_API_KEY}",
+    }
+    response = requests.delete(url, headers=headers)
+    print(response.status_code, response.text)
+
 async def get_endpoint_url(options: PayloadOptions) -> str | None:
     endpoint_name = options["endpoint_name"]
     headers = {
@@ -334,102 +339,131 @@ async def main():
 
     with open(args.config_file, "r") as f:
         options = json.load(f)
-    config_name = options["pipeline_config"]["config_name"]
-    test_dataset = f"outputs/{config_name}_test_output.csv"
+    matrix = options["matrix"]
 
-    df = pd.read_csv(test_dataset)
-    finetune_entries = df.to_dict("records")
-    print(f"Loaded {len(finetune_entries)} finetune entries from {test_dataset}")
+    runs = []
 
-    eval_questions = [
-        EvalQuestion(
-            context=entry["source"],
-            question=entry["question"],
-            true_answer=entry["answer"],
-        )
-        for entry in finetune_entries
-    ]
+    for source in matrix["pipeline_config.sources"]:
+        for llm in matrix["pipeline_config.llm"]:
+            for r in matrix["finetune_config.r"]:
+                runs.append((source, llm, r))
 
-    (base_endpoint_url, finetuned_endpoint_url) = await asyncio.gather(
-        get_or_create_endpoint(options["judge_config"]["base_model"]),
-        get_or_create_endpoint(options["judge_config"]["finetuned_model"]),
-    )
+    for source, llm, r in runs:
+        pipeline_config_name = get_pipeline_config_name(source, llm["model"])
+        finetuned_model_name = get_output_model_name(pipeline_config_name, r)
+        # Needs to be 32 characters or less, a-z, 0-9, and -
+        finetuned_endpoint_name = hashlib.sha256(finetuned_model_name.encode()).hexdigest()[:32]
+        print(f"Endpoint name: {finetuned_endpoint_name}")
+        judge_config_template = options["template"]["judge_config"]
+        test_dataset = f"outputs/{pipeline_config_name}_test_output.csv"
 
-    if base_endpoint_url is None or finetuned_endpoint_url is None:
-        raise ValueError("Failed to get or create endpoint")
+        df = pd.read_csv(test_dataset)
+        finetune_entries = df.to_dict("records")
+        print(f"Loaded {len(finetune_entries)} finetune entries from {test_dataset}")
 
-    base_client = AsyncOpenAI(
-        base_url=base_endpoint_url,
-        api_key=BASE_MODEL_API_KEY,
-    )
+        eval_questions = [
+            EvalQuestion(
+                context=entry["source"],
+                question=entry["question"],
+                true_answer=entry["answer"],
+            )
+            for entry in finetune_entries
+        ]
 
-    vector_store = get_vector_store(config_name)
-    rag_k = options["judge_config"]["rag_k"]
+        finetuned_model_options = judge_config_template["finetuned_model"]
 
-    finetuned_client = AsyncOpenAI(
-        base_url=finetuned_endpoint_url,
-        api_key=FINETUNED_MODEL_API_KEY,
-    )
-
-    base_model_name = options["judge_config"]["base_model"]["endpoint_name"]
-    finetuned_model_name = options["judge_config"]["finetuned_model"]["endpoint_name"]
-
-    base_cache = Cache(f"cache/{base_model_name}_judge_cache")
-    finetuned_cache = Cache(f"cache/{finetuned_model_name}_judge_cache")
-
-    async def get_base_response(question: str) -> str:
-        context = vector_store.similarity_search_with_score(question, k=rag_k)
-        prompt = f"""Answer the following question based on the provided context:
-        Question: {question}
-        Context:
-        {context}
-        """
-        return await base_cache.apply(
-            lambda: get_simple_response(base_client, base_model_name, prompt), prompt
+        finetuned_model_options = PayloadOptions(
+            max_replica=finetuned_model_options["max_replica"],
+            scale_to_zero_timeout=finetuned_model_options["scale_to_zero_timeout"],
+            parallelism=finetuned_model_options["parallelism"],
+            model_repository=f"CPSC532/{finetuned_model_name}",
+            endpoint_name=finetuned_endpoint_name,
+            gguf_file=finetuned_model_options["gguf_file"],
         )
 
-    async def get_finetuned_response(question: str) -> str:
-        return await finetuned_cache.apply(
-            lambda: get_simple_response(
-                finetuned_client, finetuned_model_name, question
-            ),
-            question,
+        (base_endpoint_url, finetuned_endpoint_url) = await asyncio.gather(
+            get_or_create_endpoint(judge_config_template["base_model"]),
+            get_or_create_endpoint(finetuned_model_options),
         )
 
-    results = []
-    i = 0
-    async for result in judge_questions(
-        eval_questions, get_base_response, get_finetuned_response
-    ):
-        results.append(result)
-        print(f"Winner: {result.better_answer}")
-        result.save_json(f"judge_results/{config_name}/{i}.json")
-        i += 1
-    # Count winners
-    base_wins = sum(1 for r in results if r.better_answer == EvalWinner.BASE)
-    finetuned_wins = sum(1 for r in results if r.better_answer == EvalWinner.FINE_TUNED)
+        if base_endpoint_url is None or finetuned_endpoint_url is None:
+            raise ValueError("Failed to get or create endpoint")
 
-    print("\nFinal Results:")
-    print(f"Base Model Wins: {base_wins}")
-    print(f"Fine-tuned Model Wins: {finetuned_wins}")
-    print(f"Total Comparisons: {len(results)}")
-    print(f"Fine-tuned Win Rate: {(finetuned_wins/len(results))*100:.1f}%")
-
-    # Ensure the directory exists
-    os.makedirs("../eval_results", exist_ok=True)
-
-    # Write the results to the file
-    results_file_path = f"../eval_results/{config_name}.json"
-    with open(results_file_path, "w") as results_file:
-        json.dump(
-            {
-                "base_wins": base_wins,
-                "finetuned_wins": finetuned_wins,
-            },
-            results_file,
-            indent=4,
+        base_client = AsyncOpenAI(
+            base_url=base_endpoint_url,
+            api_key=BASE_MODEL_API_KEY,
         )
-    print(f"Results written to {results_file_path}")
+
+        vector_store = get_vector_store(pipeline_config_name)
+        rag_k = options["template"]["judge_config"]["rag_k"]
+
+        finetuned_client = AsyncOpenAI(
+            base_url=finetuned_endpoint_url,
+            api_key=FINETUNED_MODEL_API_KEY,
+        )
+
+        base_model_name = judge_config_template["base_model"]["endpoint_name"]
+
+        base_cache = Cache(f"cache/{base_model_name}_judge_cache")
+        finetuned_cache = Cache(f"cache/{finetuned_model_name}_judge_cache")
+
+        async def get_base_response(question: str) -> str:
+            context = vector_store.similarity_search_with_score(question, k=rag_k)
+            prompt = f"""Answer the following question based on the provided context:
+            Question: {question}
+            Context:
+            {context}
+            """
+            return await base_cache.apply(
+                lambda: get_simple_response(base_client, base_model_name, prompt),
+                prompt,
+            )
+
+        async def get_finetuned_response(question: str) -> str:
+            return await finetuned_cache.apply(
+                lambda: get_simple_response(
+                    finetuned_client, finetuned_model_name, question
+                ),
+                question,
+            )
+
+        results = []
+        i = 0
+        async for result in judge_questions(
+            eval_questions, get_base_response, get_finetuned_response
+        ):
+            results.append(result)
+            print(f"Winner: {result.better_answer}")
+            result.save_json(f"judge_results/{pipeline_config_name}/{i}.json")
+            i += 1
+        # Count winners
+        base_wins = sum(1 for r in results if r.better_answer == EvalWinner.BASE)
+        finetuned_wins = sum(
+            1 for r in results if r.better_answer == EvalWinner.FINE_TUNED
+        )
+
+        print("\nFinal Results:")
+        print(f"Base Model Wins: {base_wins}")
+        print(f"Fine-tuned Model Wins: {finetuned_wins}")
+        print(f"Total Comparisons: {len(results)}")
+        print(f"Fine-tuned Win Rate: {(finetuned_wins/len(results))*100:.1f}%")
+
+        # Ensure the directory exists
+        os.makedirs("../eval_results", exist_ok=True)
+
+        # Write the results to the file
+        results_file_path = f"../eval_results/{pipeline_config_name}.json"
+        with open(results_file_path, "w") as results_file:
+            json.dump(
+                {
+                    "base_wins": base_wins,
+                    "finetuned_wins": finetuned_wins,
+                },
+                results_file,
+                indent=4,
+            )
+        print(f"Results written to {results_file_path}")
+        delete_endpoint(finetuned_endpoint_name)
 
 
 if __name__ == "__main__":

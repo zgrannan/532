@@ -1,9 +1,9 @@
 from pydantic import BaseModel, Field
 from typing import AsyncGenerator, AsyncIterator, List
-from openai import OpenAI, AsyncOpenAI
 from agent import OpenAIAgent
-from helpers import get_json_response_async, get_model
+from helpers import get_json_response_async
 from agent import MapAgent
+from agent import LLMClientSettings
 
 ENTITY_EXTRACTION_SYSTEM_PROMPT = """
   You are an entity extractor that extracts entities and facts from the following document in JSON. Your goal is to only extract entities and facts as a JSON object.
@@ -54,12 +54,9 @@ class EntityExtractionModel(BaseModel):
     # facts: List[str]
 
 
-ENTITY_EXTRACTION_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
-
-
 class EntityExtractionAgent(OpenAIAgent, MapAgent[str, List[str]]):
-    def __init__(self, max_entities: int):
-        super().__init__(ENTITY_EXTRACTION_MODEL)
+    def __init__(self, settings: LLMClientSettings, max_entities: int):
+        super().__init__(settings)
         MapAgent.__init__(self, name="Entity Extraction Agent")
         self.max_entities = max_entities
 
@@ -69,7 +66,7 @@ class EntityExtractionAgent(OpenAIAgent, MapAgent[str, List[str]]):
         )
         entities = await get_json_response_async(
             client=self.client,
-            model=get_model(ENTITY_EXTRACTION_MODEL),
+            model=self.model,
             messages=[
                 {"role": "system", "content": entity_prompt},
             ],

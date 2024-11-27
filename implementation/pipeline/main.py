@@ -22,6 +22,9 @@ from helpers import list_of_dicts_to_dict_of_lists, upload_to_hf, slurp_iterator
 from agent import Agent, Cache, StatelessAgent
 from helpers import get_embedding_func
 from agent import Pipeline
+from helpers import LM_STUDIO_BASE_URL
+from agent import LLMClientSettings
+from helpers import get_pipeline_config_name
 from pipeline_types import EnrichedPdfChunkWithQuestion
 from rag import EMBEDDING_MODEL, get_vector_store
 from pipeline_types import EnrichedPdfFile
@@ -61,15 +64,14 @@ class ConfigSettings(BaseModel):
     rag_chunk_overlap: int = 100
     batch_size: int = 10
     test_ratio: float  # Number of entries that should be used for testing only
-    llm_model: str
     embedding_model: str = "text-embedding-nomic-embed-text-v1.5@f32"
     config_name: str
+    llm_settings: LLMClientSettings
 
 
 class PipelineConfig(ConfigSettings):
     vector_store: Chroma
     embedding_function: OpenAIEmbeddings
-    model_provider: Literal["LMStudio", "TogetherAI", "FireworksAI"] = "LMStudio"
 
     class Config:
         arbitrary_types_allowed = True
@@ -105,7 +107,7 @@ def create_qa_pipeline(config: PipelineConfig) -> Pipeline[str, FinetuneEntry]:
     # For some reason extracting this to a variable is necessary to satisfy mypy
     add_source_stage1: Agent[
         EnrichedPdfChunkWithQuestion, EnrichedPdfChunkWithQuestion
-    ] = AddSourceToQuestionAgent(config.llm_model, config.model_provider)
+    ] = AddSourceToQuestionAgent(config.llm_settings)
 
     return (
         enrich_pdf_file_agent(config)
@@ -115,9 +117,8 @@ def create_qa_pipeline(config: PipelineConfig) -> Pipeline[str, FinetuneEntry]:
         .fan_out(
             config.llm_parallelism,
             QuestionGenerator(
-                config.llm_model,
+                config.llm_settings,
                 max_questions=config.max_base_questions_per_chunk,
-                model_provider=config.model_provider,
             ).with_cache(
                 filename=f"cache/{config.config_name}_question_generator_cache"
             ),
@@ -130,7 +131,7 @@ def create_qa_pipeline(config: PipelineConfig) -> Pipeline[str, FinetuneEntry]:
         .fan_out(
             config.llm_parallelism,
             EnrichAgent(
-                GetAnswerAgent(config.llm_model, config.model_provider).with_cache(
+                GetAnswerAgent(config.llm_settings).with_cache(
                     filename=f"cache/{config.config_name}_get_answer_cache",
                 ),
                 lambda e: QuestionWithChunk(question=e["question"], chunk=e["chunk"]),
@@ -148,21 +149,19 @@ def create_qa_pipeline(config: PipelineConfig) -> Pipeline[str, FinetuneEntry]:
         .fan_out(
             config.llm_parallelism,
             RefineQuestionsAgent(
-                model=config.llm_model,
-                sampling_percent=0.5,
-                model_provider=config.model_provider,
+                settings=config.llm_settings, sampling_percent=0.5
             ).with_cache(f"cache/{config.config_name}_refine_question_cache"),
         )
         .and_then(RemoveSimilarQuestionsAgent(config.embedding_function, 0.9))
         .and_then_if(
             config.include_source,
-            AddSourceToQuestionAgent(
-                config.llm_model, config.model_provider
-            ).parallelize(config.llm_parallelism),
+            AddSourceToQuestionAgent(config.llm_settings).parallelize(
+                config.llm_parallelism
+            ),
         )
         .fan_out(
             config.llm_parallelism,
-            GetRAGAnswerAgent(config.llm_model, config.vector_store),
+            GetRAGAnswerAgent(config.llm_settings, config.vector_store),
         )
     )
 
@@ -219,69 +218,10 @@ DEFAULT_LLM_MODEL = "meta-llama-3.1-8b-instruct-q6_k"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5@f32"
 
 
-async def main():
+async def run_pipeline(pipeline_config: PipelineConfig, file_path: str, upload: bool):
     start_time = time.time()
-
-    # parse arguments
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config_file",
-        type=str,
-        help="Path to the config file to use",
-    )
-    parser.add_argument(
-        "--config_name",
-        type=str,
-        default=datetime.now().strftime("%Y%m%d%H%M%S"),
-        help="Name of the config to use (default: timestamp)",
-    )
-    parser.add_argument(
-        "--file_path",
-        type=str,
-        default="../final_data",
-        help="Path to the directory containing PDF files (default: ../data)",
-    )
-    parser.add_argument(
-        "--no-upload",
-        action="store_false",
-        dest="upload",
-        help="Do not upload to Hugging Face",
-    )
-    args = parser.parse_args()
-    file_path = args.file_path
-    if args.config_file is not None:
-        with open(args.config_file, "r") as f:
-            config_settings = ConfigSettings(**json.load(f)["pipeline_config"])
-    else:
-        config_settings = ConfigSettings(
-            test_ratio=args.test_ratio,
-            document_chunk_size=5000,
-            document_chunk_overlap=100,
-            rag_chunk_size=500,
-            rag_chunk_overlap=100,
-            batch_size=10,
-            llm_model=DEFAULT_LLM_MODEL,
-            embedding_model=DEFAULT_EMBEDDING_MODEL,
-            config_name=args.config_name,
-        )
-
-    pipeline_config = PipelineConfig(
-        test_ratio=config_settings.test_ratio,
-        document_chunk_size=config_settings.document_chunk_size,
-        document_chunk_overlap=config_settings.document_chunk_overlap,
-        rag_chunk_size=config_settings.rag_chunk_size,
-        rag_chunk_overlap=config_settings.rag_chunk_overlap,
-        batch_size=config_settings.batch_size,
-        llm_model=config_settings.llm_model,
-        embedding_model=config_settings.embedding_model,
-        config_name=config_settings.config_name,
-        embedding_function=get_embedding_func(config_settings.embedding_model),
-        vector_store=get_vector_store(config_settings.config_name),
-        model_provider="LMStudio",
-    )
-
     huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
-    if args.upload and huggingface_api_key is None:
+    if upload and huggingface_api_key is None:
         raise ValueError("HUGGINGFACE_API_KEY is not set")
 
     # First stage getting initial Q/A Pairs
@@ -335,7 +275,7 @@ async def main():
         f"outputs/{pipeline_config.config_name}_train_output.csv", index=False
     )
 
-    if args.upload:
+    if upload:
         # Upload to Huggingface
         qa_pairs_dict = list_of_dicts_to_dict_of_lists(train_entries)
 
@@ -351,10 +291,99 @@ async def main():
 
     end_time = time.time()
 
-    print(
-        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Total time: {end_time - start_time} seconds"
-    )
+    total_time_message = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Total time: {end_time - start_time} seconds"
+    print(total_time_message)
+    with open(f"outputs/{pipeline_config.config_name}_time_log.txt", "w") as time_log_file:
+        time_log_file.write(total_time_message)
     tracker.save_to_file(pipeline_config.config_name)
+
+
+async def main():
+
+    # parse arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config_file",
+        type=str,
+        help="Path to the config file to use",
+    )
+    parser.add_argument(
+        "--config_name",
+        type=str,
+        default=datetime.now().strftime("%Y%m%d%H%M%S"),
+        help="Name of the config to use (default: timestamp)",
+    )
+    parser.add_argument(
+        "--file_path",
+        type=str,
+        default="../final_data",
+        help="Path to the directory containing PDF files (default: ../data)",
+    )
+    parser.add_argument(
+        "--no-upload",
+        action="store_false",
+        dest="upload",
+        help="Do not upload to Hugging Face",
+    )
+    args = parser.parse_args()
+    file_path = args.file_path
+    if args.config_file is not None:
+        with open(args.config_file, "r") as f:
+            config = json.load(f)
+            pipeline_template = config["template"]["pipeline_config"]
+            for include_source in config["matrix"]["pipeline_config.sources"]:
+                for llm_config in config["matrix"]["pipeline_config.llm"]:
+                    config_name = get_pipeline_config_name(include_source, llm_config["model"])
+                    api_key = os.getenv(llm_config["api_key_var"])
+                    if api_key is None:
+                        raise ValueError(
+                            f"API key for {llm_config['model']} is not set"
+                        )
+                    pipeline_config = PipelineConfig(
+                        llm_settings=LLMClientSettings(
+                            model=llm_config["model"],
+                            base_url=llm_config["base_url"],
+                            api_key=api_key,
+                            model_provider=llm_config["model_provider"],
+                        ),
+                        include_source=include_source,
+                        test_ratio=pipeline_template["test_ratio"],
+                        document_chunk_size=pipeline_template["document_chunk_size"],
+                        document_chunk_overlap=pipeline_template[
+                            "document_chunk_overlap"
+                        ],
+                        rag_chunk_size=pipeline_template["rag_chunk_size"],
+                        rag_chunk_overlap=pipeline_template["rag_chunk_overlap"],
+                        batch_size=pipeline_template["batch_size"],
+                        embedding_model=pipeline_template["embedding_model"],
+                        config_name=config_name,
+                        vector_store=get_vector_store(config_name),
+                        embedding_function=get_embedding_func(
+                            pipeline_template["embedding_model"]
+                        )
+                    )
+                    await run_pipeline(pipeline_config, file_path, args.upload)
+    else:
+        client_settings = LLMClientSettings(
+            model=DEFAULT_LLM_MODEL,
+            base_url=os.getenv("LLM_CLIENT_BASE_URL", LM_STUDIO_BASE_URL),
+            api_key=os.getenv("LLM_CLIENT_API_KEY", "apikey"),
+            model_provider="LMStudio",
+        )
+        pipeline_config = PipelineConfig(
+            llm_settings=client_settings,
+            test_ratio=args.test_ratio,
+            document_chunk_size=5000,
+            document_chunk_overlap=100,
+            rag_chunk_size=500,
+            rag_chunk_overlap=100,
+            batch_size=10,
+            embedding_model=DEFAULT_EMBEDDING_MODEL,
+            config_name=args.config_name,
+            embedding_function=get_embedding_func(DEFAULT_EMBEDDING_MODEL),
+            vector_store=get_vector_store(args.config_name),
+        )
+        await run_pipeline(pipeline_config, file_path, args.upload)
 
 
 if __name__ == "__main__":

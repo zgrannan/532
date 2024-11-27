@@ -1,0 +1,62 @@
+{
+  "matrix": {
+    "pipeline_config.sources": [true, false],
+    "finetune_config.r": [16, 128],
+    "pipeline_config.llm": [
+        {
+            "model": "meta-llama/Llama-3.1-8B-Instruct",
+            "base_url": "https://qqbecg4gn41y69kj.us-east-1.aws.endpoints.huggingface.cloud",
+            "api_key_var": "HUGGINGFACE_API_KEY",
+            "model_provider": "HuggingFace"
+        },
+        {
+            "model": "gpt-4o-mini",
+            "base_url": "https://api.openai.com/v1",
+            "api_key_var": "OPENAI_API_KEY",
+            "model_provider": "OpenAI"
+        }
+    ]
+  },
+  "template": {
+    "pipeline_config": {
+      "include_source": true,
+      "max_documents": 50,
+      "max_questions_per_chunk": 10,
+      "test_ratio": 0.1,
+      "document_chunk_size": 5000,
+      "document_chunk_overlap": 100,
+      "rag_chunk_size": 500,
+      "rag_chunk_overlap": 100,
+      "batch_size": 10,
+      "embedding_model": "text-embedding-nomic-embed-text-v1.5@f32"
+    },
+    "finetune_config": {
+      "base_model_name": "unsloth/Llama-3.2-3B-Instruct",
+      "load_in_4bit": true,
+      "max_seq_length": 16000,
+      "batch_size": 1,
+      "gradient_accumulation_steps": 1,
+      "packing": true,
+      "num_train_epochs": 10,
+      "quantization_methods": ["q4_k_m"]
+    },
+    "judge_config": {
+      "temperature": 0.0,
+      "rag_k": 3,
+      "base_model": {
+        "max_replica": 5,
+        "scale_to_zero_timeout": 30,
+        "parallelism": 10,
+        "model_repository": "unsloth/Llama-3.2-3B-Instruct-GGUF",
+        "gguf_file": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        "endpoint_name": "llama-32-3b-instruct-q4"
+      },
+      "finetuned_model": {
+        "max_replica": 5,
+        "scale_to_zero_timeout": 30,
+        "parallelism": 10,
+        "gguf_file": "unsloth.Q4_K_M.gguf"
+      }
+    }
+  }
+}

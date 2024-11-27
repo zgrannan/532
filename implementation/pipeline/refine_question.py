@@ -4,6 +4,8 @@ from datetime import datetime
 import random
 from agent import StatelessAgent, OpenAIAgent
 from agent import ModelProvider
+from agent import LLMClientSettings
+from helpers import get_response_format
 from pipeline_types import FinetuneEntry, EnrichedPdfChunkWithQuestion
 from helpers import get_json_response_async
 
@@ -23,6 +25,7 @@ REFINED_QUESTIONS_PROMPT = """
     Return a list of new questions in JSON format.
 """
 
+
 class RefinedQuestionsModel(BaseModel):
     questions: List[str]
 
@@ -31,8 +34,12 @@ class RefineQuestionsAgent(
     OpenAIAgent,
     StatelessAgent[FinetuneEntry, FinetuneEntry],
 ):
-    def __init__(self, model: str, sampling_percent: float = 0.1, model_provider: ModelProvider = "LMStudio"):
-        super().__init__(model=model, model_provider=model_provider)
+    def __init__(
+        self,
+        settings: LLMClientSettings,
+        sampling_percent: float = 0.1,
+    ):
+        super().__init__(settings)
         StatelessAgent.__init__(self, name="Refine Questions Agent")
         self.sampling_percent = sampling_percent
 
@@ -42,13 +49,7 @@ class RefineQuestionsAgent(
         print(
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating refined question for Question: {input['question']}"
         )
-        if self.model_provider == "LMStudio":
-            response_format = RefinedQuestionsModel
-        else:
-            response_format = {
-                "type": "json_object",
-                "schema": RefinedQuestionsModel.model_json_schema(),
-            }
+        response_format = get_response_format(self.model_provider, RefinedQuestionsModel)
         resp = await get_json_response_async(
             client=self.client,
             model=self.model,
@@ -64,18 +65,19 @@ class RefineQuestionsAgent(
             response_format=response_format,
             agent_name=self.name,
         )
-        yield { # Also return the original question, since we are trying to 'pass through' original q/a pair, we need to pass through this as well in GetRAGAnswerAgent
+        yield {  # Also return the original question, since we are trying to 'pass through' original q/a pair, we need to pass through this as well in GetRAGAnswerAgent
             **input,
-            "pass_through": True
-          }
+            "pass_through": True,
+        }
         for question in resp.questions:
             if random.random() > self.sampling_percent:
                 continue
             else:
                 yield {
-                    **input, # The answer
+                    **input,  # The answer
                     "question": question,
                 }
+
 
 # Moved to question_answer.py
 FURTHER_QUESTIONS_PROMPT = """
@@ -102,8 +104,12 @@ class RefineQuestionsAgentInit(
     OpenAIAgent,
     StatelessAgent[EnrichedPdfChunkWithQuestion, EnrichedPdfChunkWithQuestion],
 ):
-    def __init__(self, model: str, sampling_percent: float = 0.1, model_provider: str = "LMStudio"):
-        super().__init__(model=model , model_provider=model_provider)
+    def __init__(
+        self,
+        settings: LLMClientSettings,
+        sampling_percent: float = 0.1,
+    ):
+        super().__init__(settings)
         StatelessAgent.__init__(self, name="Refine Questions Agent")
         self.sampling_percent = sampling_percent
 
@@ -141,5 +147,6 @@ class RefineQuestionsAgentInit(
                 "question": question,
                 "refined": True,
             }
+
 
 # Add check that source is in question

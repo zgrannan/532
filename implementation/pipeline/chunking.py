@@ -1,18 +1,15 @@
-from agent import StatelessAgent, OpenAIAgent
+from agent import StatelessAgent
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 from agent import MapAgent
 from pipeline_types import (
-    FinetuneEntry,
     EnrichedPdfChunk,
     EnrichedPdfFile,
-    EnrichedPdfChunkWithEntities,
-    EnrichedPdfChunkWithQuestion,
 )
 from datetime import datetime
 from uuid import uuid4
-from typing import AsyncIterator, List
+from typing import AsyncIterator
 from helpers import split_text
 import os
 

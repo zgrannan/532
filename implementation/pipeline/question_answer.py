@@ -8,16 +8,16 @@ import logging
 from helpers import (
     get_json_response_async,
     get_messages_response_async,
-    get_model,
     get_messages_response_async,
 )
 from agent import OpenAIAgent
 from agent import MapAgent
 from agent import StatelessAgent
 from agent import ModelProvider
+from agent import LLMClientSettings
+from helpers import get_response_format
 from pipeline_types import FinetuneEntry
 from pipeline_types import (
-    EnrichedPdfChunkWithEntities,
     EnrichedPdfChunkWithQuestion,
     EnrichedPdfChunk,
 )
@@ -120,11 +120,10 @@ class QuestionGenerator(
 ):
     def __init__(
         self,
-        model: str,
+        settings: LLMClientSettings,
         max_questions: int,
-        model_provider: ModelProvider = "LMStudio",
     ):
-        super().__init__(model=model, model_provider=model_provider)
+        super().__init__(settings)
         StatelessAgent.__init__(self, name="Question Generator")
         self.max_questions = max_questions
 
@@ -157,13 +156,7 @@ class QuestionGenerator(
         print(
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of qa_prompt: {len(qa_prompt)}"
         )
-        if self.model_provider == "LMStudio":
-            response_format = QuestionAnswerModel
-        else:
-            response_format = {
-                "type": "json_object",
-                "schema": QuestionAnswerModel.model_json_schema(),
-            }
+        response_format = get_response_format(self.model_provider, QuestionAnswerModel)
         init_questions = await get_json_response_async(
             client=self.client,
             model=self.model,
@@ -212,8 +205,10 @@ class QuestionWithChunk(TypedDict):
 
 
 class GetAnswerAgent(OpenAIAgent, MapAgent[QuestionWithChunk, str]):
-    def __init__(self, model: str, model_provider: ModelProvider = "LMStudio"):
-        super().__init__(model=model, model_provider=model_provider)
+    def __init__(
+        self, settings: LLMClientSettings
+    ):
+        super().__init__(settings)
         MapAgent.__init__(self, name="Get Answer Agent")
 
     async def handle(self, input: QuestionWithChunk) -> str:

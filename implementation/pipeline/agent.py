@@ -9,23 +9,22 @@ from typing import (
     Awaitable,
     Callable,
     Dict,
-    Iterator,
     List,
     Tuple,
     TypeVar,
     Generic,
-    AsyncGenerator,
     cast,
     Optional,
     Literal,
 )
+from typing_extensions import TypedDict
 import time
 import asyncio
 
 from langchain_openai import OpenAIEmbeddings
 from openai.types.chat import ChatCompletionMessageParam
 
-from helpers import get_async_client, get_model, get_embedding_func
+from helpers import get_async_client, get_embedding_func
 from abc import ABC, abstractmethod
 
 from helpers import once
@@ -87,11 +86,12 @@ class Pipeline(ABC, Generic[Input, Output]):
     ) -> "Pipeline[Input, V]":
         return self.and_then(ParallelAgent(max_parallelism, agent))
 
-
     def map(self, func: Callable[[Output], V]) -> "FuncAgent[Input, Output, V]":
         return FuncAgent(self, func)
 
-    def and_then_if(self, condition: bool, next: "Pipeline[Output, Output]") -> "Pipeline[Input, Output]":
+    def and_then_if(
+        self, condition: bool, next: "Pipeline[Output, Output]"
+    ) -> "Pipeline[Input, Output]":
         if condition:
             return self.and_then(next)
         else:
@@ -294,19 +294,25 @@ class EnrichAgent(Agent[Input, Output], Generic[Input, Output, T, U]):
             yield self.frm(orig_input, elem)
 
 
-ModelProvider = Literal["LMStudio", "TogetherAI", "FireworksAI"]
+ModelProvider = Literal["LMStudio", "TogetherAI", "FireworksAI", "HuggingFace", "OpenAI"]
+
+
+class LLMClientSettings(TypedDict):
+    model: str
+    base_url: str
+    api_key: str
+    model_provider: ModelProvider
 
 
 class OpenAIAgent:
     def __init__(
         self,
-        model: str,
+        settings: LLMClientSettings,
         embedding_model: Optional[str] = None,
-        model_provider: ModelProvider = "LMStudio",
     ):
-        self.model = get_model(model)
-        self.client = get_async_client()
-        self.model_provider = model_provider
+        self.model = settings["model"]
+        self.client = get_async_client(settings["base_url"], settings["api_key"])
+        self.model_provider = settings["model_provider"]
         self.embedding_func: Optional[OpenAIEmbeddings] = (
             get_embedding_func(embedding_model) if embedding_model else None
         )
@@ -316,8 +322,10 @@ class OpenAIMessagesAgent(
     OpenAIAgent,
     MapAgent[list[ChatCompletionMessageParam], str],
 ):
-    def __init__(self, model: str, model_provider: ModelProvider = "LMStudio"):
-        super().__init__(model, model_provider)
+    def __init__(
+        self, settings: LLMClientSettings
+    ):
+        super().__init__(settings)
         MapAgent.__init__(self, name="OpenAIMessagesAgent")
 
     async def handle(self, input: list[ChatCompletionMessageParam]) -> str:
@@ -504,8 +512,21 @@ class Compose(Pipeline[T, V], Generic[T, U, V]):
         return {**self.left.nodes(), **self.right.nodes()}
 
     async def _process(self, input: AsyncIterator[T]) -> AsyncIterator[V]:
-        async for output in self.right.process(self.left.process(input)):
+        queue: asyncio.Queue[U | None] = asyncio.Queue(maxsize=100)
+        async def consume_left():
+            async for e in self.left.process(input):
+                await queue.put(e)
+            await queue.put(None)
+        async def producer():
+            while True:
+                e = await queue.get()
+                if e is None:
+                    break
+                yield e
+        producer_task = asyncio.create_task(consume_left())
+        async for output in self.right.process(producer()):
             yield output
+        await producer_task
 
 
 class UnchunkingAgent(Agent[List[T], T]):
@@ -553,9 +574,7 @@ class Cache:
     def set_cached_output(self, input: Any, output: Any):
         self.cache[input] = output
 
-    async def apply(
-        self, func: Callable[[], Awaitable[Output]], input: Any
-    ) -> Output:
+    async def apply(self, func: Callable[[], Awaitable[Output]], input: Any) -> Output:
         cached = self.get_cached_output(input)
         if cached is not None:
             return cached

@@ -1,6 +1,7 @@
-from agent import StatelessAgent, OpenAIAgent, Agent, OpenAIMessagesAgent
+from agent import StatelessAgent, Agent, OpenAIMessagesAgent
 from langchain_chroma import Chroma
 from typing import List, AsyncIterator, Dict, Tuple
+from agent import LLMClientSettings
 from pipeline_types import FinetuneEntry
 from datetime import datetime
 import logging
@@ -35,11 +36,9 @@ Supporting Documentation:
 
 class GetRAGAnswerAgent(Agent[FinetuneEntry, FinetuneEntry]):
 
-    def __init__(self, model: str, vector_store: Chroma, k: int = 5):
+    def __init__(self, settings: LLMClientSettings, vector_store: Chroma, k: int = 5):
         super().__init__("Get RAG Answer Agent")
-        self.messages_agent = OpenAIMessagesAgent(
-            model=model,
-        )
+        self.messages_agent = OpenAIMessagesAgent(settings)
         self.vector_store = vector_store
         self.k = k
 

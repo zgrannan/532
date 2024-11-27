@@ -1,13 +1,13 @@
 from agent import Agent, MapAgent, StatelessAgent, OpenAIAgent
 from agent import ModelProvider
+from agent import LLMClientSettings
+from helpers import get_response_format
 from pipeline_types import (
     HasQuestion,
-    HasSource,
-    HasSourceType,
     FinetuneEntry,
     EnrichedPdfChunkWithQuestion,
 )
-from typing import AsyncIterator, TypeVar, Protocol
+from typing import AsyncIterator, TypeVar
 from langchain_openai import OpenAIEmbeddings
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -15,6 +15,7 @@ from helpers import slurp_iterator, get_json_response_async
 from datetime import datetime
 from pydantic import BaseModel
 import logging
+
 
 class RemoveDuplicateQuestionsAgent(
     Agent[EnrichedPdfChunkWithQuestion, EnrichedPdfChunkWithQuestion]
@@ -28,6 +29,7 @@ class RemoveDuplicateQuestionsAgent(
                 seen.add(input["question"])
                 yield input
 
+
 class EmbeddingsAgent(MapAgent[str, list[float]]):
     def __init__(self, embeddings_func: OpenAIEmbeddings):
         super().__init__("Embeddings Agent")
@@ -36,7 +38,9 @@ class EmbeddingsAgent(MapAgent[str, list[float]]):
     async def handle(self, input: str) -> list[float]:
         return await self.embeddings_func.aembed_query(input)
 
+
 HasQuestionT = TypeVar("HasQuestionT", bound=HasQuestion)
+
 
 class RemoveSimilarQuestionsAgent(Agent[HasQuestionT, HasQuestionT]):
     def __init__(self, embeddings_func: OpenAIEmbeddings, threshold: float):
@@ -79,6 +83,7 @@ class RemoveSimilarQuestionsAgent(Agent[HasQuestionT, HasQuestionT]):
 
         for item in filtered_data:
             yield item
+
 
 SOURCE_IN_QUESTION_PROMPT = """
 Analyze questions and ensure proper source attribution by following these rules:
@@ -123,26 +128,24 @@ class SourceInQuestion(BaseModel):
     question: str
 
 
-AddSourceToQuestionT = TypeVar("AddSourceToQuestionT", EnrichedPdfChunkWithQuestion, FinetuneEntry)
+AddSourceToQuestionT = TypeVar(
+    "AddSourceToQuestionT", EnrichedPdfChunkWithQuestion, FinetuneEntry
+)
 
-class AddSourceToQuestionAgent(OpenAIAgent,
-                               StatelessAgent[AddSourceToQuestionT, AddSourceToQuestionT]):
-    def __init__(self, model: str, model_provider: ModelProvider = "LMStudio"):
-        super().__init__(model=model, model_provider=model_provider)
+
+class AddSourceToQuestionAgent(
+    OpenAIAgent, StatelessAgent[AddSourceToQuestionT, AddSourceToQuestionT]
+):
+    def __init__(
+        self, settings: LLMClientSettings
+    ):
+        super().__init__(settings)
         StatelessAgent.__init__(self, name="Add Source to Question Agent")
-
 
     async def process_element(
         self, input: AddSourceToQuestionT
     ) -> AsyncIterator[AddSourceToQuestionT]:
-        if self.model_provider == "LMStudio":
-            response_format = SourceInQuestion
-        else:
-            response_format = {
-                "type": "json_object",
-                "schema" : SourceInQuestion.model_json_schema()
-            }
-        # async for input in inputs:
+        response_format = get_response_format(self.model_provider, SourceInQuestion)
         resp = await get_json_response_async(
             client=self.client,
             model=self.model,
