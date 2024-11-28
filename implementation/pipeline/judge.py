@@ -72,6 +72,7 @@ async def judge(
     )
 
     # Use default OpenAI client for gpt4
+    print(os.environ["OPENAI_API_KEY"])
     client = AsyncOpenAI()
 
     response = await get_simple_response(client, JUDGE_MODEL, prompt)
@@ -351,6 +352,10 @@ async def main():
     for source, llm, r in runs:
         pipeline_config_name = get_pipeline_config_name(source, llm["model"])
         finetuned_model_name = get_output_model_name(pipeline_config_name, r)
+        results_file_path = f"../eval_results/{finetuned_model_name}.json"
+        if os.path.exists(results_file_path):
+            print(f"Results file {results_file_path} already exists. Skipping...")
+            continue
         # Needs to be 32 characters or less, a-z, 0-9, and -
         finetuned_endpoint_name = hashlib.sha256(finetuned_model_name.encode()).hexdigest()[:32]
         print(f"Endpoint name: {finetuned_endpoint_name}")
@@ -452,7 +457,6 @@ async def main():
         os.makedirs("../eval_results", exist_ok=True)
 
         # Write the results to the file
-        results_file_path = f"../eval_results/{pipeline_config_name}.json"
         with open(results_file_path, "w") as results_file:
             json.dump(
                 {
