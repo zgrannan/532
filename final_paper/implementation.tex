@@ -4,7 +4,7 @@
 \subsection{Synthetic Data Generation Framework}
 
 We chose Llama 3.1 8B as our LLM in our synthetic data generation framework, which is one the largest model that could fit on a single NVIDIA-3080. Initial experiments
-were also attempted with Meta's recent Llama 3.2 3B model <Add source> but was found to hallucinate more frequently than the 8B model and couldn't follow the instruction prompts as well.
+were also attempted with Meta's recent Llama 3.2 3B model \cite{llama32} but was found to hallucinate more frequently than the 8B model and couldn't follow the instruction prompts as well.
 To run inference locally, we deployed the models locally using LMStudio, an application that allows for easy deployment of large language models on local machines.
 
 For question generation in our framework, we used JSON Mode to allow for easy extraction of the generated questions. While for answer generation, we used the default
@@ -16,37 +16,12 @@ The embedding models and the vector database that we used were nomic-embed-text-
 
 \subsection{Dataset}
 
-\begin{itemize}
-   \item Mention the dataset used, number of questions that got generated from the framework, tokens, etc.
-\end{itemize}
-For our dataset, we picked 10 ArXiv papers published after 2024, specifically papers relevant to small language models, fine-tuning LLM's and synthetic data generation. 
-Using our framework, we generated a total of 1749 questions using a total of ~7.69M LLM tokens and averaging approximately 4.3k total tokens per question generated. 
-The breakdown of the number of questions generated and their corresponding page counts can be found in Table \ref{tab:questions_and_pages} and the token usage 
-for each pipeline component can be found in Table \ref{tab:pipeline_tokens}. Estimating inference cost from cloud providers at \$0.20 per 1 million tokens, 
-the total cost of generating questions for the dataset would be approximately \$1.54. This further highlights the enormous cost savings that can be achieved 
+For our dataset, we picked 10 ArXiv papers published after 2024, specifically papers relevant to small language models, fine-tuning LLM's and synthetic data generation.
+Using our framework, we generated a total of 1749 questions using a total of ~7.69M LLM tokens and averaging approximately 4.3k total tokens per question generated.
+The breakdown of the number of questions generated and their corresponding page counts can be found in Table \ref{tab:questions_and_pages} and the token usage
+for each pipeline component can be found in the appendix (Table A. \ref{tab:pipeline_tokens}). Estimating inference cost from cloud providers at \$0.20 per 1 million tokens,
+the total cost of generating questions for the dataset would be approximately \$1.54. This further highlights the enormous cost savings that can be achieved
 by leveraging small language models for data generation for question answering tasks.
-
-\begin{table}[t]
-   \centering
-   \caption{Papers, number of questions generated, and their corresponding page counts.}
-   \label{tab:questions_and_pages}
-   \begin{tabular}{p{8cm} r r}
-   \toprule
-   \textbf{Paper Name} & \textbf{Questions Generated} & \textbf{Pages} \\
-   \midrule
-   What is the Role of Small Models in the LLM Era: A Survey & 283 & 25 \\
-   Does Fine-Tuning LLMs on New Knowledge Encourage Hallucinations? & 233 & 20 \\
-   AgentInstruct Toward Generative Teaching With Agentic Flows & 218 & 32 \\
-   Small Language Models: Survey, Measurements, and Insights & 215 & 22 \\
-   LONGCITE: ENABLING LLMS TO GENERATE FINEGRAINED CITATIONS IN LONG-CONTEXT QA & 182 & 24 \\
-   WHEN SCALING MEETS LLM FINETUNING: THE EFFECT OF DATA, MODEL, AND FINETUNING METHOD & 150 & 20 \\
-   Finetuning LLMs for Enterprise: Practical Guidelines and Recommendations & 146 & 17 \\
-   Orca-Math: Unlocking the potential of SLMs in Grade School Math & 113 & 14 \\
-   From Artificial Needles to Real Haystacks: Improving Retrieval Capabilities in LLMs by Finetuning on Synthetic Data & 105 & 13 \\
-   RAFT: Adapting Language Model to Domain Specific RAG & 104 & 12 \\
-   \bottomrule
-   \end{tabular}
-\end{table}
 
 \begin{table}[t]
    \centering
@@ -68,12 +43,12 @@ by leveraging small language models for data generation for question answering t
 \subsection{Fine-tuning}
 
 
-For the base model for fine-tuning, we chose Llama 3.2 3B model, which is smaller model than Llama 3.1 8B model used in the synthetic data generation framework and more 
+For the base model for fine-tuning, we chose Llama 3.2 3B model, which is smaller model than Llama 3.1 8B model used in the synthetic data generation framework and more
 recently relased from Meta. This model also outperforms other small language models such as Gemma 2 2.6B and Phi 3.5-mini on various tasks.
 
-We chose Unsloth for LoRA finetuning, which is an open-source framework designed to reduce memory usage and increase training speed for large language models such as Llama, Mistral, 
-Phi, and Qwen model families. The optimized framework, which is built upon custom Triton kernels for backpropagation steps, enables up to 70\% memory savings without decreases in 
-accuracy, which makes it suitable for fine-tuning large language models on consumer grade GPU's and environments such as Google Colab. 
+We chose Unsloth for LoRA finetuning, which is an open-source framework designed to reduce memory usage and increase training speed for large language models such as Llama, Mistral,
+Phi, and Qwen model families. The optimized framework, which is built upon custom Triton kernels for backpropagation steps, enables up to 70\% memory savings without decreases in
+accuracy, which makes it suitable for fine-tuning large language models on consumer grade GPU's and environments such as Google Colab.
 
 The parameters used for fine-tuning are shown in Table \ref{tab:lora-parameters}. In our results, we evaluate the performance of the model when fine-tuned with various rank $\mathit{r}$ values.
 The number of parameters for the LoRA adapters trained are shown in Table \ref{tab:rank-params}.
@@ -89,7 +64,7 @@ The number of parameters for the LoRA adapters trained are shown in Table \ref{t
     \midrule
     \texttt{r} & 16, 32, 64, 128 & Rank of the low-rank matrices. Higher values retain more information but increase computational load. \\
     \addlinespace[3pt]
-    \texttt{target\_modules} & q\_proj, k\_proj, v\_proj, o\_proj, gate\_proj, up\_proj, down\_proj & 
+    \texttt{target\_modules} & q\_proj, k\_proj, v\_proj, o\_proj, gate\_proj, up\_proj, down\_proj &
     Layers targeted for LoRA adaptation. \\
     \addlinespace[3pt]
     \texttt{lora\_alpha} & 16 & Scaling factor for the LoRA updates. Higher values can speed up convergence but may risk instability. \\
@@ -118,42 +93,3 @@ The number of parameters for the LoRA adapters trained are shown in Table \ref{t
     \bottomrule
     \end{tabular}
 \end{table}
-\subsection{Evaluation Approach}
-\begin{itemize}
-\item How we evaluated the validity of our framework -> Hallucination check on generated data
-\item LM as a judge to compare finetuned LLM vs baseline RAG
-\end{itemize}
-
-
-
-\subsubsection{Hallucination Check}
-
-As Large Language Models are increasingly relevant in Generative AI applications, the issue of hallucination has become a growing concern.
-Hallucination refers to the generation of text that is not supported by the input data, leading to incorrect or misleading information.
-To ensure the validity of our synthetic data generation framework, we implemented a hallucination check to evaluate the quality of the generated data.
-Specifically, we leverage HHEM-2.1-Open % https://huggingface.co/vectara/hallucination_evaluation_model#using-hhem-21-open
-as our hallucination detection model, which has been shown to perform better than GPT-4 on hallucination detection tasks.
-
-This model outputs a factual consistency score between 0 and 1, in which the higher the score, the more consistent the generated text is with the input data.
-To produce scores, both a response and the context used to generate the response are required as inputs to the model. We used the answer generated by 
-our framework as the response and the chunk of text from the source paper as the context. The factual consistency score is then calculated by the model.
-
-\begin{table}[h]
-\centering
-\caption{Factual Consistency Score Distribution}
-\begin{tabular}{lr}
-\hline
-Metric & Score \\
-\hline
-Mean & 0.78 \\
-Median & 0.81 \\
-Standard Deviation & 0.14 \\
-Minimum & 0.51 \\
-Maximum & 0.99 \\
-\hline
-\end{tabular}
-\label{tab:factual-consistency-scores}
-\end{table}
-
-\subsubsection{Evaluating Fine-tuned Model}
-

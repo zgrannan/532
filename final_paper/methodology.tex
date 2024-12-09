@@ -53,21 +53,12 @@ A pipeline defines a nondeterminstic function $\streamty{\mathcal{T}}
 
 \subsection{Python Implementation}
 
-We implement our framework in Python. In the design of our implementation, we
-sought to achieve the following goals:
-
-\begin{enumerate}
-  \item The framework should enable a small semantic gap \cite{semanticgap}
-  between user's intentions and the representation in code
-  \item It should enable the development of efficient data pipelines that include
-  e.g. parallelism and caching
-\end{enumerate}
-
-As in our conceptual model, streams are a key concept in our library: a stream
-$\stream{T}$ is represented by an object of type \texttt{AsyncIterator[T]}. This
-was a natural choice for our use case because \texttt{AsyncIterator} objects can
-easily be created from data structures (esp. lists) and also directly defined
-using Python's async generator syntax\footnote{For more details see
+We implement our framework in Python. In our library, we use asynchronous
+generators to model streams; in particular a stream containing elememnts of type
+\texttt{T} is represented by a value of type \texttt{AsyncIterator[T]}. This was
+a natural choice for our use case because generators can easily be created from
+data structures (esp. lists) and also directly defined as generator
+functions\footnote{For more details see
 \url{https://peps.python.org/pep-0525/}}.
 
  The abstract class
@@ -93,7 +84,26 @@ otherwise calling the underlying agent to return the result. One requirement on
 the underlying agent is that it must be \emph{stateless}: its behaviour upon
 receiving a new input should not depend on previously received inputs.
 
-\subsubsection{Parallelism}
+\subsubsection{Concurrency}
 
-It can be useful for performance reasons to use multiple instances of the same
-agent in parallel. TODO
+By default, agents in a pipeline operate concurrently. For example, in a
+pipeline where the output of an agent $a$ is used as input to agent $b$, while
+agent $b$ is processing $a$'s output stream, the agent $a$ itself continue to
+process elements from its input stream.
+
+However, in data processing pipelines, unrestricted concurrency can cause
+performance problems. In particular, to continue the above example, if agent $a$
+emits output elements faster than agent $b$ can process them, memory exhaustion
+can occur there is insufficient memory to store the as-yet unprocessed outputs
+of $a$. To address this issue, our framework supports \emph{backpressure} by
+introducing bounded queues between agent connections. When the queue between
+e.g. agents $a$ and $b$ is full, agent $a$ is suspended until the queue has
+additional space available. Backpressure parameters such as queue size can be
+controlled by the user, and even disabled entirely.
+
+We note that in contrast to our framework, features such as backpressure are
+challenging to implement in actor-based frameworks, and require careful
+modification to actor code. Furthermore, both the caching and concurrency
+features of the framework are built using the framework's public API. Therefore,
+users of the framework could instead implement their own custom logic for such
+functionality.

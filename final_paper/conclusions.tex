@@ -1,12 +1,15 @@
 \section{Conclusion}
 
-We expect that the performance of our approach, compared to traditional
-RAG-based approach, will depend on the extent to which the structure of the
-domain-specific data resembles the way it is used in an application. When the
-structure is similar, we expect RAG-based approaches to exhibit comparable
-performance, because the relevant data can be easily found using standard
-retrieval metrics based on the distance between embeddings. However, when the
-structure of the data is different, we expect our approach to yield better
-results: the "pre-processing" of the data via agentic workflows and subsequent
-fine-tuning on that data should hopefully allow the model to memorise the data
-in a way such that it can use it effectively later.
+In this work, we developed an agentic framework for synthetically generating
+fine-tuning data. We evaluated our approach by creating a synthetic data
+generation pipeline for answering QA tasks, and comparing its performance
+against a RAG-based approach. Our results suggest that models finetuned using
+our framework can achieve comparable performance compared to the RAG-based
+approach.
+
+As future work, we could consider evaluating our approach to generate finetuned
+models for additional datasets to determine whether our technique applicable
+across a range of domains. Additionally, there are several improvements we could
+make to our "LLM-As-Judge" framework. In particular, enabling the judge to
+return a numerical outcome to compare answer quality may yield more accurate
+results compared to the current implementation which returns a binary decision.
