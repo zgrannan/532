@@ -14,6 +14,7 @@ from typing import AsyncIterator, Awaitable, TypedDict, List, Callable
 
 from agent import Cache
 from helpers import get_output_model_name, get_pipeline_config_name
+from helpers import get_results_file_path
 from rag import EMBEDDING_MODEL, get_vector_store
 import requests
 
@@ -352,7 +353,7 @@ async def main():
     for source, llm, r in runs:
         pipeline_config_name = get_pipeline_config_name(source, llm["model"])
         finetuned_model_name = get_output_model_name(pipeline_config_name, r)
-        results_file_path = f"../eval_results/{finetuned_model_name}.json"
+        results_file_path = get_results_file_path(finetuned_model_name)
         if os.path.exists(results_file_path):
             print(f"Results file {results_file_path} already exists. Skipping...")
             continue

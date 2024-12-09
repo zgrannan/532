@@ -16,6 +16,18 @@ from datetime import datetime
 from pydantic import BaseModel
 import logging
 
+T = TypeVar("T")
+
+class RemoveDuplicatesAgent(Agent[T, T]):
+    def __init__(self):
+        super().__init__("Remove Duplicates Agent")
+
+    async def _process(self, input_stream: AsyncIterator[T]) -> AsyncIterator[T]:
+        seen = set()
+        async for input in input_stream:
+            if input not in seen:
+                seen.add(input)
+                yield input
 
 class RemoveDuplicateQuestionsAgent(
     Agent[EnrichedPdfChunkWithQuestion, EnrichedPdfChunkWithQuestion]

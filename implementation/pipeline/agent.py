@@ -432,7 +432,6 @@ class ParallelAgent(Agent[T, U]):
                 print(
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Exception from producer of {self.name}: {e}"
                 )
-                # await queue.put(e)
             finally:
                 await asyncio.gather(*tasks, return_exceptions=True)
                 await queue.put(None)
@@ -451,15 +450,12 @@ class ParallelAgent(Agent[T, U]):
                         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Skipping error - exception from {self.agent.name}: {output}"
                     )
                     continue
-                    # await producer_task
-                    # raise output
                 yield output
             except Exception as e:
                 print(
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in queue processing {str(e)}"
                 )
                 continue
-                # raise e
 
         # Ensure the producer task has completed
         await producer_task

@@ -24,6 +24,9 @@ def get_pipeline_config_name(include_source: bool, model: str) -> str:
 def get_output_model_name(pipeline_config_name: str, r: int) -> str:
     return f"{pipeline_config_name}_r{r}"
 
+def get_results_file_path(output_model_name: str) -> str:
+    return f"../eval_results/{output_model_name}.json"
+
 def get_response_format(model_provider: str, typ: type[BaseModel]) -> Any:
     if (
         model_provider == "LMStudio"
