@@ -108,8 +108,44 @@ with retrieval-augmented generation for improved quality and diversity of genera
 
 \subsection{Token Usage and Costs}
 
+To estimate the total token usage and costs of running our synthetic data generation framework, 
+we parameterize the token usage based on document size, chunk size, and prompt tokens for each compoennt. 
+
+\section*{Parameter Definitions}
+
+To estimate the total token usage for the pipeline, the following parameters are used:
 
 \begin{itemize}
-  \item Analyze the token usage and costs of running the pipeline
-  \item see if this can be parameterized by number based on chunk size, number of docs, etc.
+    \item \( N \): Total number of tokens in the document being processed.
+    \item \( c_d \): Document chunk size used for question and answer generation.
+    \item \( c_r \): Retrieval chunk size used during the question answer refinement. 
+    \item \( k \): Number of top retrieval chunks selected during the retrieval process in question answer refinement. 
+    \item \( n_q \): Number of base questions generated per document chunk. \( n_q = 10 \).
+    \item \( n_r \): Number of refined questions generated during the question answer refinement phase. We empirically find that  \( n_r  \approx  5 \).
+
 \end{itemize}
+
+\subsection*{Prompt Token Sizes}
+The prompt tokens represent fixed overheads for specific tasks in the pipeline:
+\begin{itemize}
+    \item \( T_{qg} \): Tokens required for the Question Generator prompt. \( T_{qg} = 500 \).
+    \item \( T_{ag} \): Tokens required for the Answer Generator prompt. \( T_{ag} = 160 \).
+    \item \( T_{qref} \): Tokens required for the Question Refinement prompt. \( T_{ref} = 100 \).
+    \item \( T_{aref} \): Tokens required for the Answer Refinement prompt.  \( T_{ar} = 200 \).
+    \item \( T_s \): Tokens required to add source information to questions.  \( T_s = 160 \)
+    \item \( T_{qa}\): Tokens of generated question and answer pair. We empirically find that \( T_{qa} \approx 200 \).
+\end{itemize}
+
+
+
+\subsubsection*{Prompt Token Calculation}
+
+To estimate the total token usage for the pipeline, we calculate the number of tokens required for each component of the pipeline
+and sum them up to get the total token usage per document.
+\begin{align*}
+\text{Number of tokens for Question Generation} & = \left(T_{qg} + c_d\right) \cdot \frac{N}{c_d} \\
+\text{Number of tokens for Answer Generation} & = \left(T_{ag} + c_d\right) \cdot \frac{N}{c_d} \cdot n_q \\
+\text{Number of tokens for Question Refinement} & = \left(T_{qref} + T_{qa}\right) \cdot \frac{N}{c_d} \cdot n_q \\
+\text{Number of tokens for Answer Refinement} & = \left(T_{aref} + T_{qa} + \left(k \cdot c_r\right)\right) \cdot \frac{N}{c_d} \cdot n_r \\
+\text{Number of tokens for Source Addition} & = T_s \cdot \frac{N}{c_d} \cdot (n_q + n_r)
+\end{align*}
