@@ -10,7 +10,7 @@ framework will employ small language models to create a synthetic dataset that c
 to fine-tune a LLM for downstream Question Answering tasks.}
 \end{figure}
 
-\subsection{Data Preparation}
+\paragraph{Data Preparation}
 For the source dataset used in our framework, we used ArXiv papers published after 2024, specifically papers relevant to
 small language models, fine-tuning LLM's and synthetic data generation.
 This choice was motivated by several factors including:
@@ -22,7 +22,7 @@ This choice was motivated by several factors including:
 \end{itemize}
 
 To prepare the data into our framework, we chunked each paper into a fixed size and extracted the title to be used in the
-question generator. 
+question generator.
 
 \subsection{Question Generator}\label{sec:question-generator}
 
@@ -60,20 +60,20 @@ We perform simple heuristics to ensure that questions that could not be answered
 
 \subsection{Algorithm}
 
-\begin{algorithm}[H]
+\begin{algorithm}[h]
   \SetAlgoLined
   \KwData{PDF documents $D$, document chunk size $c_d$, retrieval chunk size $c_r$ $(c_d > c_r)$, overlap sizes $(o_d, o_r)$}
   \KwResult{Set of question-answer pairs $QA$}
-  
+
   Initialize vector store $V$ and empty result set $QA$\;
   \ForEach{document $d \in D$}{
       Extract metadata (title, source) from $d$\;
       Chunk document into segments of size $c_d$ with overlap $o_d$\;
-      
+
       \tcp{Embedding Pipeline for RAG}
       Create smaller retrieval chunks of size $c_r$ with overlap $o_r$ from document\;
       Embed retrieval chunks and store embeddings in vector store $V$\;
-      
+
       \tcp{Question Generation Phase}
       \ForEach{document chunk $c$ of size $c_d$}{
           Generate base questions $Q_b$ using LLM\;
@@ -84,7 +84,7 @@ We perform simple heuristics to ensure that questions that could not be answered
               Add $(q,a)$ to base QA pairs\;
           }
       }
-      
+
       \tcp{Question Refinement Phase}
       \ForEach{$(q,a)$ in base QA pairs}{
           Generate refined questions $Q_r$ based on $(q,a)$\;
@@ -99,17 +99,19 @@ We perform simple heuristics to ensure that questions that could not be answered
   }
   \Return{$QA$}\;
   \caption{Synthetic QA Pair Generation Pipeline}
+  \label{alg:algorithm}
   \end{algorithm}
 
-The algorithm above details our complete pipeline for generating synthetic question-answer pairs 
-from domain-specific documents, incorporating both base question generation and refinement phases
-with retrieval-augmented generation for improved quality and diversity of generated questions.
+Algorithm \ref{alg:algorithm} details our complete pipeline for generating
+synthetic question-answer pairs from domain-specific documents, incorporating
+both base question generation and refinement phases with retrieval-augmented
+generation for improved quality and diversity of generated questions.
 
 
 \subsection{Token Usage and Costs}
 
-To estimate the total token usage and costs of running our synthetic data generation framework, 
-we parameterize the token usage based on document size, chunk size, and prompt tokens for each compoennt. 
+To estimate the total token usage and costs of running our synthetic data generation framework,
+we parameterize the token usage based on document size, chunk size, and prompt tokens for each compoennt.
 
 \section*{Parameter Definitions}
 
@@ -118,8 +120,8 @@ To estimate the total token usage for the pipeline, the following parameters are
 \begin{itemize}
     \item \( N \): Total number of tokens in the document being processed.
     \item \( c_d \): Document chunk size used for question and answer generation.
-    \item \( c_r \): Retrieval chunk size used during the question answer refinement. 
-    \item \( k \): Number of top retrieval chunks selected during the retrieval process in question answer refinement. 
+    \item \( c_r \): Retrieval chunk size used during the question answer refinement.
+    \item \( k \): Number of top retrieval chunks selected during the retrieval process in question answer refinement.
     \item \( n_q \): Number of base questions generated per document chunk. \( n_q = 10 \).
     \item \( n_r \): Number of refined questions generated during the question answer refinement phase. We empirically find that  \( n_r  \approx  5 \).
 
